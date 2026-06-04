@@ -63,9 +63,23 @@ export default function Map() {
   useEffect(() => {
     if (mapRef.current) return
     const m = L.map('map').setView([-5.4, 105.2], 9)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(m)
+    const basemaps = {
+  'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }),
+  'Topografi (OpenTopoMap)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenTopoMap contributors'
+  }),
+  'Terrain (Esri)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri'
+  }),
+  'Satelit (Esri)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri'
+  }),
+}
+
+basemaps['OpenStreetMap'].addTo(m)
+L.control.layers(basemaps).addTo(m)
     mapRef.current = m
     setMapReady(true)
     return () => {
