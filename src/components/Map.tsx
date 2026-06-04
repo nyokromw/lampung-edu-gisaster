@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { supabase } from '@/lib/supabase'
@@ -19,21 +19,38 @@ interface LayerPeta {
   nama: string
   file_url: string
   warna: string
+  has_tingkat: boolean
+  field_tingkat: string
   jenis_bencana: { nama: string }
+}
+
+interface SubLayer {
+  tingkat: string
+  layer: L.GeoJSON
+  visible: boolean
+  warna: string
 }
 
 interface LayerState {
   info: LayerPeta
-  layer: L.GeoJSON
+  layer: L.GeoJSON | null
   visible: boolean
+  subLayers: SubLayer[]
+}
+
+const WARNA_TINGKAT: Record<string, string> = {
+  tinggi: '#FF0000',
+  sedang: '#FFA500',
+  rendah: '#FFFF00',
 }
 
 export default function Map() {
   const [kabupatenList, setKabupatenList] = useState<Kabupaten[]>([])
   const [selectedKabupaten, setSelectedKabupaten] = useState<number | null>(null)
-  const [map, setMap] = useState<L.Map | null>(null)
   const [layers, setLayers] = useState<LayerState[]>([])
   const [activeMenu, setActiveMenu] = useState<'layer' | 'ukur' | 'crosssection' | 'search' | 'overlay'>('layer')
+  const mapRef = useRef<L.Map | null>(null)
+  const [mapReady, setMapReady] = useState(false)
 
   useEffect(() => {
     const fetchKabupaten = async () => {
@@ -44,18 +61,27 @@ export default function Map() {
   }, [])
 
   useEffect(() => {
+    if (mapRef.current) return
     const m = L.map('map').setView([-5.4, 105.2], 9)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors'
     }).addTo(m)
-    setMap(m)
-    return () => { m.remove() }
+    mapRef.current = m
+    setMapReady(true)
+    return () => {
+      m.remove()
+      mapRef.current = null
+    }
   }, [])
 
   useEffect(() => {
-    if (!map || !selectedKabupaten) return
+    if (!mapReady || !mapRef.current || !selectedKabupaten) return
+    const map = mapRef.current
 
-    layers.forEach(l => map.removeLayer(l.layer))
+    layers.forEach(l => {
+  if (l.layer) { try { map.removeLayer(l.layer) } catch (_) {} }
+  l.subLayers.forEach(sl => { try { map.removeLayer(sl.layer) } catch (_) {} })
+})
     setLayers([])
 
     const fetchLayers = async () => {
@@ -65,61 +91,125 @@ export default function Map() {
         .eq('kabupaten_id', selectedKabupaten)
         .eq('published', true)
 
-      if (!data) return
+      if (!data || !mapRef.current) return
 
       const newLayers: LayerState[] = []
 
       for (const layerData of data) {
-        const res = await fetch(layerData.file_url)
-        const geojson = await res.json()
+        try {
+          const res = await fetch(layerData.file_url)
+          const geojson = await res.json()
+          if (!mapRef.current) return
 
-        const layer = L.geoJSON(geojson, {
-          style: { color: layerData.warna || '#FF0000', weight: 2, fillOpacity: 0.8 },
-          onEachFeature: (feature, layer) => {
-            if (feature.properties?.nama) {
-              layer.bindPopup(`<b>${feature.properties.nama}</b><br/>${feature.properties.keterangan || ''}`)
+          if (layerData.has_tingkat && layerData.field_tingkat) {
+            const field = layerData.field_tingkat
+            const nilaiTingkat = [...new Set(
+              geojson.features.map((f: any) => f.properties?.[field]).filter(Boolean)
+            )] as string[]
+
+            const subLayers: SubLayer[] = []
+
+            for (const tingkat of nilaiTingkat) {
+              const warna = WARNA_TINGKAT[tingkat.toLowerCase()] || layerData.warna || '#FF0000'
+              const filtered = {
+                type: 'FeatureCollection',
+                features: geojson.features.filter((f: any) => f.properties?.[field] === tingkat)
+              }
+
+              const subLayer = L.geoJSON(filtered as any, {
+                style: { color: warna, weight: 2, fillOpacity: 0.6 },
+                onEachFeature: (feature, layer) => {
+                  layer.bindPopup(`<b>${feature.properties?.nama || tingkat}</b><br/>Tingkat: ${tingkat}<br/>${feature.properties?.keterangan || ''}`)
+                },
+                pointToLayer: (feature, latlng) => {
+                  const getRadius = (zoom: number) => Math.max(0.2, zoom - 9)
+                  const marker = L.circleMarker(latlng, {
+                    radius: getRadius(map.getZoom()),
+                    fillColor: warna,
+                    color: '#fff',
+                    weight: 1,
+                    fillOpacity: 0.8
+                  })
+                  map.on('zoomend', () => marker.setRadius(getRadius(map.getZoom())))
+                  return marker
+                }
+              }).addTo(map)
+
+              subLayers.push({ tingkat, layer: subLayer, visible: true, warna })
             }
-          },
-          pointToLayer: (feature, latlng) => {
-            const getRadius = (zoom: number) => Math.max(0.2, zoom - 9)
-            const marker = L.circleMarker(latlng, {
-              radius: getRadius(map!.getZoom()),
-              fillColor: layerData.warna || '#FF0000',
-              color: '#fff',
-              weight: 1,
-              fillOpacity: 0.8
-            })
-            map!.on('zoomend', () => {
-              marker.setRadius(getRadius(map!.getZoom()))
-            })
-            return marker
-          }
-        }).addTo(map)
 
-        newLayers.push({ info: layerData, layer, visible: true })
+            newLayers.push({ info: layerData, layer: null, visible: true, subLayers })
+          } else {
+            const layer = L.geoJSON(geojson, {
+              style: { color: layerData.warna || '#FF0000', weight: 2, fillOpacity: 0.8 },
+              onEachFeature: (feature, layer) => {
+                if (feature.properties?.nama) {
+                  layer.bindPopup(`<b>${feature.properties.nama}</b><br/>${feature.properties.keterangan || ''}`)
+                }
+              },
+              pointToLayer: (feature, latlng) => {
+                const getRadius = (zoom: number) => Math.max(0.2, zoom - 9)
+                const marker = L.circleMarker(latlng, {
+                  radius: getRadius(map.getZoom()),
+                  fillColor: layerData.warna || '#FF0000',
+                  color: '#fff',
+                  weight: 1,
+                  fillOpacity: 0.8
+                })
+                map.on('zoomend', () => marker.setRadius(getRadius(map.getZoom())))
+                return marker
+              }
+            }).addTo(map)
+
+            newLayers.push({ info: layerData, layer, visible: true, subLayers: [] })
+          }
+        } catch (e) {
+          console.error('Gagal load layer:', e)
+        }
       }
 
       setLayers(newLayers)
     }
 
     fetchLayers()
-  }, [selectedKabupaten, map])
+  }, [selectedKabupaten, mapReady])
 
   const toggleLayer = (index: number) => {
-    if (!map) return
+    if (!mapRef.current) return
+    const map = mapRef.current
     const updated = [...layers]
-    if (updated[index].visible) {
-      map.removeLayer(updated[index].layer)
+    const l = updated[index]
+
+    if (l.layer) {
+      l.visible ? map.removeLayer(l.layer) : map.addLayer(l.layer)
+      l.visible = !l.visible
     } else {
-      map.addLayer(updated[index].layer)
+      l.subLayers.forEach(sl => {
+        l.visible ? map.removeLayer(sl.layer) : map.addLayer(sl.layer)
+      })
+      l.visible = !l.visible
     }
-    updated[index].visible = !updated[index].visible
+    setLayers(updated)
+  }
+
+  const toggleSubLayer = (layerIndex: number, subIndex: number) => {
+    if (!mapRef.current) return
+    const map = mapRef.current
+    const updated = [...layers]
+    const sl = updated[layerIndex].subLayers[subIndex]
+    sl.visible ? map.removeLayer(sl.layer) : map.addLayer(sl.layer)
+    sl.visible = !sl.visible
     setLayers(updated)
   }
 
   const changeOpacity = (index: number, opacity: number) => {
     const updated = [...layers]
-    updated[index].layer.setStyle({ fillOpacity: opacity, opacity: opacity })
+    const l = updated[index]
+    if (l.layer) {
+      l.layer.setStyle({ fillOpacity: opacity, opacity })
+    } else {
+      l.subLayers.forEach(sl => sl.layer.setStyle({ fillOpacity: opacity, opacity }))
+    }
     setLayers(updated)
   }
 
@@ -159,7 +249,9 @@ export default function Map() {
 
         {activeMenu === 'layer' && (
           <div>
-            {layers.length === 0 && <p className="text-xs text-gray-400">Pilih kabupaten dulu</p>}
+            {layers.length === 0 && (
+              <p className="text-xs text-gray-400">Pilih kabupaten dulu</p>
+            )}
             {layers.map((l, i) => (
               <div key={l.info.id} className="mb-3 border-b pb-2">
                 <div className="flex items-center gap-2">
@@ -173,6 +265,26 @@ export default function Map() {
                     {l.info.nama}
                   </label>
                 </div>
+
+                {l.subLayers.length > 0 && (
+                  <div className="ml-4 mt-1 flex flex-col gap-1">
+                    {l.subLayers.map((sl, si) => (
+                      <div key={sl.tingkat} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={sl.visible}
+                          onChange={() => toggleSubLayer(i, si)}
+                          id={`sublayer-${i}-${si}`}
+                        />
+                        <div className="w-3 h-3 rounded" style={{ background: sl.warna }}></div>
+                        <label htmlFor={`sublayer-${i}-${si}`} className="text-xs cursor-pointer capitalize">
+                          {sl.tingkat}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-xs text-gray-400">Opacity</span>
                   <input
@@ -190,9 +302,9 @@ export default function Map() {
           </div>
         )}
 
-        {activeMenu === 'ukur' && <MeasureControl map={map} />}
-        {activeMenu === 'crosssection' && <CrossSection map={map} />}
-        {activeMenu === 'search' && <SearchControl map={map} />}
+        {activeMenu === 'ukur' && <MeasureControl map={mapRef.current} />}
+        {activeMenu === 'crosssection' && <CrossSection map={mapRef.current} />}
+        {activeMenu === 'search' && <SearchControl map={mapRef.current} />}
         {activeMenu === 'overlay' && <OverlayControl layers={layers} />}
 
       </div>

@@ -8,6 +8,8 @@ interface LayerState {
     id: string
     nama: string
     file_url: string
+    has_tingkat: boolean
+    field_tingkat: string
     jenis_bencana: { nama: string }
   }
   visible: boolean
@@ -25,12 +27,30 @@ interface HasilTerdampak {
 export default function OverlayControl({ layers }: Props) {
   const [selectedBencana, setSelectedBencana] = useState('')
   const [selectedFasilitas, setSelectedFasilitas] = useState('')
+  const [selectedTingkat, setSelectedTingkat] = useState('semua')
+  const [tingkatOptions, setTingkatOptions] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [hasil, setHasil] = useState<HasilTerdampak[]>([])
   const [sudahAnalisis, setSudahAnalisis] = useState(false)
 
-  const layerBencana = layers.filter(l => l.info.jenis_bencana?.nama)
-  const layerFasilitas = layers.filter(l => l.info.jenis_bencana?.nama)
+  const handlePilihBencana = async (id: string) => {
+    setSelectedBencana(id)
+    setSelectedTingkat('semua')
+    setTingkatOptions([])
+
+    const layer = layers.find(l => l.info.id === id)
+    if (!layer || !layer.info.has_tingkat) return
+
+    const res = await fetch(layer.info.file_url)
+    const geojson = await res.json()
+    const field = layer.info.field_tingkat || 'tingkat'
+
+    const nilaiTingkat = [...new Set(
+      geojson.features.map((f: any) => f.properties?.[field]).filter(Boolean)
+    )] as string[]
+
+    setTingkatOptions(nilaiTingkat)
+  }
 
   const analisis = async () => {
     if (!selectedBencana || !selectedFasilitas) return
@@ -40,27 +60,25 @@ export default function OverlayControl({ layers }: Props) {
 
     const bencanaLayer = layers.find(l => l.info.id === selectedBencana)
     const fasilitasLayer = layers.find(l => l.info.id === selectedFasilitas)
-
-    if (!bencanaLayer || !fasilitasLayer) {
-      setLoading(false)
-      return
-    }
+    if (!bencanaLayer || !fasilitasLayer) { setLoading(false); return }
 
     const [resBencana, resFasilitas] = await Promise.all([
       fetch(bencanaLayer.info.file_url).then(r => r.json()),
       fetch(fasilitasLayer.info.file_url).then(r => r.json())
     ])
 
+    const field = bencanaLayer.info.field_tingkat || 'tingkat'
+    const polygons = resBencana.features.filter((f: any) => {
+      if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') return false
+      if (selectedTingkat === 'semua') return true
+      return f.properties?.[field] === selectedTingkat
+    })
+
     const terdampak: HasilTerdampak[] = []
-
-    for (const polygon of resBencana.features) {
-      if (polygon.geometry.type !== 'Polygon' && polygon.geometry.type !== 'MultiPolygon') continue
-
+    for (const polygon of polygons) {
       for (const titik of resFasilitas.features) {
         if (titik.geometry.type !== 'Point') continue
-
-        const masuk = turf.booleanPointInPolygon(titik, polygon)
-        if (masuk) {
+        if (turf.booleanPointInPolygon(titik, polygon)) {
           terdampak.push({
             nama: titik.properties?.nama || 'Tanpa nama',
             keterangan: titik.properties?.keterangan || ''
@@ -74,6 +92,8 @@ export default function OverlayControl({ layers }: Props) {
     setLoading(false)
   }
 
+  const selectedBencanaInfo = layers.find(l => l.info.id === selectedBencana)?.info
+
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs font-bold text-gray-600">Analisis Overlay:</p>
@@ -82,14 +102,30 @@ export default function OverlayControl({ layers }: Props) {
         <label className="text-xs text-gray-500">Layer Bencana (Poligon):</label>
         <select
           className="text-xs border p-1 rounded"
-          onChange={(e) => setSelectedBencana(e.target.value)}
+          onChange={(e) => handlePilihBencana(e.target.value)}
         >
           <option value="">Pilih layer bencana</option>
-          {layerBencana.map(l => (
+          {layers.map(l => (
             <option key={l.info.id} value={l.info.id}>{l.info.nama}</option>
           ))}
         </select>
       </div>
+
+      {selectedBencanaInfo?.has_tingkat && tingkatOptions.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-gray-500">Filter Tingkat:</label>
+          <select
+            className="text-xs border p-1 rounded"
+            value={selectedTingkat}
+            onChange={(e) => setSelectedTingkat(e.target.value)}
+          >
+            <option value="semua">Semua tingkat</option>
+            {tingkatOptions.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1">
         <label className="text-xs text-gray-500">Layer Fasilitas (Titik):</label>
@@ -98,14 +134,14 @@ export default function OverlayControl({ layers }: Props) {
           onChange={(e) => setSelectedFasilitas(e.target.value)}
         >
           <option value="">Pilih layer fasilitas</option>
-          {layerFasilitas.map(l => (
+          {layers.map(l => (
             <option key={l.info.id} value={l.info.id}>{l.info.nama}</option>
           ))}
         </select>
       </div>
 
       <button
-        className="text-xs bg-purple-600 text-white px-2 py-1 rounded"
+        className="text-xs bg-purple-600 text-white px-2 py-1 rounded disabled:opacity-50"
         onClick={analisis}
         disabled={loading || !selectedBencana || !selectedFasilitas}
       >
