@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import SearchControl from './SearchControl'
 import MeasureControl from './MeasureControl'
 import CrossSection from './CrossSection'
+import OverlayControl from './OverlayControl'
 
 interface Kabupaten {
   id: number
@@ -32,7 +33,7 @@ export default function Map() {
   const [selectedKabupaten, setSelectedKabupaten] = useState<number | null>(null)
   const [map, setMap] = useState<L.Map | null>(null)
   const [layers, setLayers] = useState<LayerState[]>([])
-  const [activeMenu, setActiveMenu] = useState<'layer' | 'ukur' | 'crosssection' | 'search'>('layer')
+  const [activeMenu, setActiveMenu] = useState<'layer' | 'ukur' | 'crosssection' | 'search' | 'overlay'>('layer')
 
   useEffect(() => {
     const fetchKabupaten = async () => {
@@ -122,11 +123,18 @@ export default function Map() {
     setLayers(updated)
   }
 
+  const menuList = [
+    { key: 'layer', label: 'Layer' },
+    { key: 'ukur', label: 'Ukur' },
+    { key: 'crosssection', label: 'Topografi' },
+    { key: 'search', label: 'Cari' },
+    { key: 'overlay', label: 'Overlay' },
+  ] as const
+
   return (
     <div className="relative w-full h-screen">
-      <div className="absolute top-4 left-4 z-[1000] bg-white p-3 rounded shadow w-[240px]">
-        
-        {/* Dropdown kabupaten */}
+      <div className="absolute top-4 left-4 z-[1000] bg-white p-3 rounded shadow w-[240px] max-h-[90vh] overflow-y-auto">
+
         <select
           className="text-sm border p-1 rounded w-full mb-3"
           onChange={(e) => setSelectedKabupaten(Number(e.target.value))}
@@ -137,20 +145,18 @@ export default function Map() {
           ))}
         </select>
 
-        {/* Tab menu */}
         <div className="flex gap-1 mb-3 flex-wrap">
-          {(['layer', 'ukur', 'crosssection', 'search'] as const).map((menu) => (
+          {menuList.map((menu) => (
             <button
-              key={menu}
-              className={`text-xs px-2 py-1 rounded border ${activeMenu === menu ? 'bg-blue-600 text-white' : 'bg-white'}`}
-              onClick={() => setActiveMenu(menu)}
+              key={menu.key}
+              className={`text-xs px-2 py-1 rounded border ${activeMenu === menu.key ? 'bg-blue-600 text-white' : 'bg-white'}`}
+              onClick={() => setActiveMenu(menu.key)}
             >
-              {menu === 'layer' ? 'Layer' : menu === 'ukur' ? 'Ukur' : menu === 'crosssection' ? 'Topografi' : 'Cari'}
+              {menu.label}
             </button>
           ))}
         </div>
 
-        {/* Konten tab */}
         {activeMenu === 'layer' && (
           <div>
             {layers.length === 0 && <p className="text-xs text-gray-400">Pilih kabupaten dulu</p>}
@@ -187,6 +193,7 @@ export default function Map() {
         {activeMenu === 'ukur' && <MeasureControl map={map} />}
         {activeMenu === 'crosssection' && <CrossSection map={map} />}
         {activeMenu === 'search' && <SearchControl map={map} />}
+        {activeMenu === 'overlay' && <OverlayControl layers={layers} />}
 
       </div>
       <div id="map" style={{ width: '100%', height: '100vh' }} />
