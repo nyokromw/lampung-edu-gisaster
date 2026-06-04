@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { supabase } from '@/lib/supabase'
+import SearchControl from './SearchControl'
+import MeasureControl from './MeasureControl'
+import CrossSection from './CrossSection'
 
 interface Kabupaten {
   id: number
@@ -29,6 +32,7 @@ export default function Map() {
   const [selectedKabupaten, setSelectedKabupaten] = useState<number | null>(null)
   const [map, setMap] = useState<L.Map | null>(null)
   const [layers, setLayers] = useState<LayerState[]>([])
+  const [activeMenu, setActiveMenu] = useState<'layer' | 'ukur' | 'crosssection' | 'search'>('layer')
 
   useEffect(() => {
     const fetchKabupaten = async () => {
@@ -120,7 +124,9 @@ export default function Map() {
 
   return (
     <div className="relative w-full h-screen">
-      <div className="absolute top-4 left-4 z-[1000] bg-white p-3 rounded shadow min-w-[220px]">
+      <div className="absolute top-4 left-4 z-[1000] bg-white p-3 rounded shadow w-[240px]">
+        
+        {/* Dropdown kabupaten */}
         <select
           className="text-sm border p-1 rounded w-full mb-3"
           onChange={(e) => setSelectedKabupaten(Number(e.target.value))}
@@ -131,9 +137,23 @@ export default function Map() {
           ))}
         </select>
 
-        {layers.length > 0 && (
+        {/* Tab menu */}
+        <div className="flex gap-1 mb-3 flex-wrap">
+          {(['layer', 'ukur', 'crosssection', 'search'] as const).map((menu) => (
+            <button
+              key={menu}
+              className={`text-xs px-2 py-1 rounded border ${activeMenu === menu ? 'bg-blue-600 text-white' : 'bg-white'}`}
+              onClick={() => setActiveMenu(menu)}
+            >
+              {menu === 'layer' ? 'Layer' : menu === 'ukur' ? 'Ukur' : menu === 'crosssection' ? 'Topografi' : 'Cari'}
+            </button>
+          ))}
+        </div>
+
+        {/* Konten tab */}
+        {activeMenu === 'layer' && (
           <div>
-            <p className="text-xs font-bold mb-2 text-gray-600">Layer Tersedia:</p>
+            {layers.length === 0 && <p className="text-xs text-gray-400">Pilih kabupaten dulu</p>}
             {layers.map((l, i) => (
               <div key={l.info.id} className="mb-3 border-b pb-2">
                 <div className="flex items-center gap-2">
@@ -163,6 +183,11 @@ export default function Map() {
             ))}
           </div>
         )}
+
+        {activeMenu === 'ukur' && <MeasureControl map={map} />}
+        {activeMenu === 'crosssection' && <CrossSection map={map} />}
+        {activeMenu === 'search' && <SearchControl map={map} />}
+
       </div>
       <div id="map" style={{ width: '100%', height: '100vh' }} />
     </div>
