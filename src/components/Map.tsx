@@ -70,13 +70,18 @@ export default function Map() {
             }
           },
           pointToLayer: (feature, latlng) => {
-            return L.circleMarker(latlng, {
-              radius: 8,
-              fillColor: layerData.warna || '#FF0000',
-              color: '#fff',
-              weight: 1,
-              fillOpacity: 0.8
-            })
+  const getRadius = (zoom: number) => Math.max(0.2, zoom - 9)
+  const marker = L.circleMarker(latlng, {
+    radius: getRadius(map!.getZoom()),
+    fillColor: layerData.warna || '#FF0000',
+    color: '#fff',
+    weight: 1,
+    fillOpacity: 0.8
+  })
+  map!.on('zoomend', () => {
+    marker.setRadius(getRadius(map!.getZoom()))
+  })
+  return marker
           }
         }).addTo(map)
 
