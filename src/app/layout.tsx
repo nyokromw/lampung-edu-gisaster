@@ -18,11 +18,7 @@ export const metadata: Metadata = {
   description: 'Platform GIS Edukasi Kebencanaan Lampung',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="id">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
