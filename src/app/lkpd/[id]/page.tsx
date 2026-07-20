@@ -753,7 +753,20 @@ function drawContain(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: nu
 }
 
 const PAINT_COLORS = ['#1e293b', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#2563eb', '#7c3aed', '#ffffff']
-type PaintTool = 'pena' | 'nomor' | 'penghapus' | 'teks'
+type PaintTool = 'pena' | 'garis' | 'kotak' | 'lingkaran' | 'nomor' | 'penghapus' | 'teks'
+
+// Warna tetap tiap angka 1..9 (Cara B) — tidak semua merah
+const NOMOR_WARNA: Record<number, string> = {
+  1: '#dc2626', // merah
+  2: '#2563eb', // biru
+  3: '#16a34a', // hijau
+  4: '#f59e0b', // oranye
+  5: '#7c3aed', // ungu
+  6: '#db2777', // pink
+  7: '#0891b2', // cyan
+  8: '#65a30d', // lime
+  9: '#78350f', // cokelat
+}
 
 function PaintCanvas({ a, value, onChange, locked }: {
   a: Aktivitas; value: string; onChange: (v: string) => void; locked: boolean
@@ -764,6 +777,8 @@ function PaintCanvas({ a, value, onChange, locked }: {
   const [size, setSize] = useState(3)
   const [tool, setTool] = useState<PaintTool>('pena')
   const last = useRef<{ x: number; y: number } | null>(null)
+  const startPt = useRef<{ x: number; y: number } | null>(null)
+  const baseSnapshot = useRef<ImageData | null>(null)   // kondisi kanvas sebelum shape sedang digambar
   const history = useRef<string[]>([])                  // riwayat untuk undo (dataURL)
   const [nomorTerpilih, setNomorTerpilih] = useState(1)   // ikon nomor yang dipilih siswa (1..9)
   // Input teks menempel di kanvas (bukan prompt browser)
@@ -795,12 +810,12 @@ function PaintCanvas({ a, value, onChange, locked }: {
   }
   const commit = () => onChange(canvasRef.current!.toDataURL('image/png'))
 
-  // Stempel ikon nomor bulat
+  // Stempel ikon nomor bulat — warna tetap sesuai angka
   const stampNomor = (x: number, y: number, n: number) => {
     const ctx = canvasRef.current!.getContext('2d')!
     const r = Math.max(12, size * 3.2)
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2)
-    ctx.fillStyle = color; ctx.fill()
+    ctx.fillStyle = NOMOR_WARNA[n] || color; ctx.fill()
     ctx.lineWidth = 2; ctx.strokeStyle = '#ffffff'; ctx.stroke()
     ctx.fillStyle = '#ffffff'
     ctx.font = `bold ${Math.round(r * 1.15)}px system-ui, sans-serif`
@@ -831,7 +846,6 @@ function PaintCanvas({ a, value, onChange, locked }: {
     const ctx = canvasRef.current!.getContext('2d')!
 
     if (tool === 'teks') {
-      // Kalau ada kotak input terbuka, tulis dulu yang lama
       if (teksInput) commitTeks()
       setTeksInput({ x: p.x, y: p.y, nilai: '' })
       return
@@ -843,10 +857,13 @@ function PaintCanvas({ a, value, onChange, locked }: {
       return
     }
 
-    // pena / penghapus → coretan bebas
     pushHistory()
     drawing.current = true
-    last.current = p
+    last.current = p; startPt.current = p
+    // shape butuh snapshot untuk preview
+    if (tool === 'garis' || tool === 'kotak' || tool === 'lingkaran') {
+      baseSnapshot.current = ctx.getImageData(0, 0, canvasRef.current!.width, canvasRef.current!.height)
+    }
   }
 
   const move = (e: React.PointerEvent) => {
@@ -854,19 +871,34 @@ function PaintCanvas({ a, value, onChange, locked }: {
     const ctx = canvasRef.current!.getContext('2d')!
     const p = pos(e)
     ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-    if (tool === 'penghapus') {
-      // Karet: gambar dengan warna latar putih, lebih tebal
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(size * 4, 16)
-    } else {
+
+    if (tool === 'pena') {
       ctx.strokeStyle = color; ctx.lineWidth = size
+      ctx.beginPath(); ctx.moveTo(last.current!.x, last.current!.y); ctx.lineTo(p.x, p.y); ctx.stroke()
+      last.current = p
+    } else if (tool === 'penghapus') {
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(size * 4, 16)
+      ctx.beginPath(); ctx.moveTo(last.current!.x, last.current!.y); ctx.lineTo(p.x, p.y); ctx.stroke()
+      last.current = p
+    } else {
+      // garis / kotak / lingkaran: pulihkan snapshot lalu gambar preview
+      if (baseSnapshot.current) ctx.putImageData(baseSnapshot.current, 0, 0)
+      const s = startPt.current!
+      ctx.strokeStyle = color; ctx.lineWidth = size
+      ctx.beginPath()
+      if (tool === 'garis') { ctx.moveTo(s.x, s.y); ctx.lineTo(p.x, p.y); ctx.stroke() }
+      else if (tool === 'kotak') { ctx.strokeRect(Math.min(s.x, p.x), Math.min(s.y, p.y), Math.abs(p.x - s.x), Math.abs(p.y - s.y)) }
+      else if (tool === 'lingkaran') {
+        const cx = (s.x + p.x) / 2, cy = (s.y + p.y) / 2
+        const rx = Math.abs(p.x - s.x) / 2, ry = Math.abs(p.y - s.y) / 2
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke()
+      }
     }
-    ctx.beginPath(); ctx.moveTo(last.current!.x, last.current!.y); ctx.lineTo(p.x, p.y); ctx.stroke()
-    last.current = p
   }
 
   const end = () => {
     if (!drawing.current || locked) return
-    drawing.current = false; last.current = null
+    drawing.current = false; last.current = null; startPt.current = null; baseSnapshot.current = null
     commit()
   }
 
@@ -890,6 +922,9 @@ function PaintCanvas({ a, value, onChange, locked }: {
 
   const TOOLS: { value: PaintTool; label: string; icon: string }[] = [
     { value: 'pena', label: 'Pena', icon: '✏️' },
+    { value: 'garis', label: 'Garis', icon: '╱' },
+    { value: 'kotak', label: 'Kotak', icon: '▭' },
+    { value: 'lingkaran', label: 'Bulat', icon: '◯' },
     { value: 'nomor', label: 'Nomor', icon: '①' },
     { value: 'penghapus', label: 'Penghapus', icon: '⌫' },
     { value: 'teks', label: 'Teks', icon: 'T' },
@@ -913,19 +948,20 @@ function PaintCanvas({ a, value, onChange, locked }: {
             </div>
           </div>
 
-          {/* Pemilih nomor 1–9 (muncul saat tool Nomor aktif) */}
+          {/* Pemilih nomor 1–9 (warna tetap tiap angka) */}
           {tool === 'nomor' && (
             <div className="flex items-center gap-1.5 flex-wrap bg-white rounded-lg border border-gray-200 px-2 py-1.5">
               <span className="text-[10px] text-gray-500 mr-0.5">Pilih angka:</span>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
                 <button key={n} type="button" onClick={() => setNomorTerpilih(n)}
-                  className={`w-7 h-7 rounded-full text-[12px] font-bold flex items-center justify-center border-2 transition-all
-                    ${nomorTerpilih === n ? 'text-white border-white ring-2 ring-blue-400' : 'text-white border-white/70 opacity-70 hover:opacity-100'}`}
-                  style={{ background: color }}>{n}</button>
+                  className={`w-7 h-7 rounded-full text-[12px] font-bold text-white flex items-center justify-center border-2 transition-all
+                    ${nomorTerpilih === n ? 'border-white ring-2 ring-blue-400' : 'border-white/70 opacity-80 hover:opacity-100'}`}
+                  style={{ background: NOMOR_WARNA[n] }}>{n}</button>
               ))}
               <span className="text-[10px] text-gray-400 ml-1">lalu klik di kanvas</span>
             </div>
           )}
+
           {/* Warna & tebal */}
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex gap-1">
@@ -969,7 +1005,10 @@ function PaintCanvas({ a, value, onChange, locked }: {
       {!locked && (
         <p className="text-[10px] text-gray-400">
           {tool === 'pena' && 'Gambar bebas di kanvas.'}
-          {tool === 'nomor' && 'Pilih angka (1–9) lalu klik di kanvas untuk menempelkannya. Bisa dipakai berulang.'}
+          {tool === 'garis' && 'Tekan–tarik–lepas untuk membuat garis.'}
+          {tool === 'kotak' && 'Tekan–tarik–lepas untuk membuat kotak.'}
+          {tool === 'lingkaran' && 'Tekan–tarik–lepas untuk membuat bulatan.'}
+          {tool === 'nomor' && 'Pilih angka (1–9, tiap angka beda warna) lalu klik di kanvas. Bisa dipakai berulang.'}
           {tool === 'penghapus' && 'Usap di kanvas untuk menghapus coretan.'}
           {tool === 'teks' && 'Klik posisi di kanvas, lalu ketik teksnya.'}
           {' '}Hasil otomatis tersimpan & ikut tercetak di PDF.
