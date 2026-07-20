@@ -50,31 +50,6 @@ const LABEL_SKOR: Record<string, string> = {
   '1': 'Sangat Rendah', '2': 'Rendah', '3': 'Sedang', '4': 'Tinggi', '5': 'Sangat Tinggi',
 }
 
-// Urutan kelas dari AMAN -> BAHAYA (dipakai konsisten di daftar layer & legenda)
-const URUTAN_KELAS = ['sangat aman', 'aman', 'tidak rawan', 'sangat rendah', 'rendah', 'agak rawan', 'sedang', 'rawan', 'tinggi', 'sangat rawan', 'sangat tinggi']
-function rankKelas(tingkat: string): number {
-  const t = tingkat.toLowerCase().trim()
-  // Cari kata kunci yang cocok PALING SPESIFIK (terpanjang) agar
-  // "sangat rawan" tidak keliru cocok ke "rawan", "sangat aman" tidak ke "aman", dst.
-  let bestIdx = -1, bestLen = -1
-  URUTAN_KELAS.forEach((u, idx) => {
-    if (t.includes(u) && u.length > bestLen) { bestLen = u.length; bestIdx = idx }
-  })
-  return bestIdx
-}
-function sortSubLayers<T extends { tingkat: string }>(subs: T[]): T[] {
-  return [...subs].sort((a, b) => {
-    const ia = rankKelas(a.tingkat)
-    const ib = rankKelas(b.tingkat)
-    if (ia !== -1 && ib !== -1) return ia - ib
-    if (ia !== -1) return -1
-    if (ib !== -1) return 1
-    const na = parseFloat(a.tingkat), nb = parseFloat(b.tingkat)
-    if (!isNaN(na) && !isNaN(nb)) return na - nb
-    return 0
-  })
-}
-
 const DASH_OPTIONS = [
   { id: '', label: 'Solid' },
   { id: '8,6', label: 'Dashed' },
@@ -191,7 +166,7 @@ function buildLegendGroups(layers: LayerState[]): LegendGroup[] {
 }
 
 // ScaleBar — custom, tengah bawah, update saat zoom
-function StatusBar({ map, hoverCoord, clickCoord, elevation, onCopy, copied, onClear, bottomOffset = 12, compact = false }: {
+function StatusBar({ map, hoverCoord, clickCoord, elevation, onCopy, copied, onClear, bottomOffset = 12 }: {
   map: L.Map | null
   hoverCoord: { lat: number; lng: number } | null
   clickCoord: { lat: number; lng: number } | null
@@ -200,7 +175,6 @@ function StatusBar({ map, hoverCoord, clickCoord, elevation, onCopy, copied, onC
   copied: boolean
   onClear: () => void
   bottomOffset?: number
-  compact?: boolean
 }) {
   const [scaleText, setScaleText] = useState('')
   const [scaleWidth, setScaleWidth] = useState(0)
@@ -231,7 +205,7 @@ function StatusBar({ map, hoverCoord, clickCoord, elevation, onCopy, copied, onC
 
   return (
     <div className="absolute left-1/2 -translate-x-1/2 z-[1000] pointer-events-none flex justify-center transition-all duration-300"
-      style={{ bottom: bottomOffset, zoom: compact ? 0.8 : 1 }}>
+      style={{ bottom: bottomOffset }}>
       <div className="flex items-center gap-0 bg-white/95 backdrop-blur border border-gray-200 rounded-full shadow-lg text-gray-600 select-none overflow-hidden">
         {/* Koordinat */}
         <div className={`flex items-center gap-1.5 px-3.5 py-1.5 border-r border-gray-200 min-w-[168px] ${clickCoord ? 'pointer-events-auto' : ''}`}>
@@ -337,10 +311,9 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
   const mapContainerRef = useRef<HTMLDivElement>(null)
   // Admin layer: sembunyikan wilayah tertentu + pengaturan garis
   const [hiddenWilayah, setHiddenWilayah] = useState<Record<string, string[]>>({})
-  const [wilayahCari, setWilayahCari] = useState<Record<string, string>>({})
   const [adminStrokeStyle, setAdminStrokeStyle] = useState<Record<string, { fill: string; noFill: boolean; stroke: string; noStroke: boolean; weight: number; dash: string }>>({})
   // Bottom sheet hasil analisis
-  const [hasilSheetOpen, setHasilSheetOpen] = useState(false)
+  const [hasilSheetOpen, setHasilSheetOpen] = useState(true)
   const [hasilExpand, setHasilExpand] = useState<Record<string, boolean>>({})
   const hasilSheetRef = useRef<HTMLDivElement>(null)
   const [hasilSheetHeight, setHasilSheetHeight] = useState(0)
@@ -403,8 +376,6 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
   }
   const [panelOpen, setPanelOpen] = useState(true)
   const [legendOpen, setLegendOpen] = useState(true)
-  // Icon-rail flyout: panel mana yang sedang terbuka (null = peta penuh)
-  const [activeFlyout, setActiveFlyout] = useState<'layer' | 'basemap' | 'analisis' | null>(compact ? null : 'layer')
   const [toolActive, setToolActive] = useState(false)
   const [activeBasemap, setActiveBasemap] = useState('terrain')
   const [showGoogleLabels, setShowGoogleLabels] = useState(false)
@@ -464,8 +435,6 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ administrasi: true, fasilitas: true, bencana: true })
   const [activeToolKey, setActiveToolKey] = useState<MenuKey | null>(null)
   const [panelTab, setPanelTab] = useState<'layer' | 'analisis'>('layer')
-  const [layerTab, setLayerTab] = useState<'aktif' | 'pilih'>('pilih')
-  const [peekBasemap, setPeekBasemap] = useState(false)
   const [popupInfo, setPopupInfo] = useState<{ latlng: L.LatLng; items: { layerNama: string; props: Record<string, any> }[] } | null>(null)
   const toolActiveRef = useRef(false)
   const popupRef = useRef<L.Popup | null>(null)
@@ -814,45 +783,6 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
     applyZOrder(updated); setLayers(updated)
   }
 
-  // Intip Peta Dasar: sembunyikan sementara SEMUA layer dari peta tanpa mengubah status visible-nya,
-  // lalu kembalikan persis seperti semula. Hanya menyentuh peta, bukan state layer.
-  const togglePeekBasemap = () => {
-    const map = mapRef.current
-    if (!map) return
-    if (!peekBasemap) {
-      // Sembunyikan semua yang sedang tampil
-      layers.forEach(l => {
-        if (l.layer && map.hasLayer(l.layer)) map.removeLayer(l.layer)
-        l.subLayers.forEach(sl => { if (map.hasLayer(sl.layer)) map.removeLayer(sl.layer) })
-        removeLabels(l.info.id)
-      })
-      setPeekBasemap(true)
-    } else {
-      // Kembalikan sesuai status visible masing-masing
-      layers.forEach(l => {
-        if (!l.visible) return
-        if (l.layer) { if (!map.hasLayer(l.layer)) map.addLayer(l.layer) }
-        else l.subLayers.forEach(sl => { if (sl.visible && !map.hasLayer(sl.layer)) map.addLayer(sl.layer) })
-      })
-      applyZOrder(layers)
-      setPeekBasemap(false)
-    }
-  }
-
-  // Set visibilitas SEMUA layer sekaligus (untuk aksi cepat di tab Layer Aktif)
-  const setSemuaLayerVisible = (target: boolean) => {
-    const map = mapRef.current
-    if (!map) return
-    const updated = layers.map(l => {
-      if (l.visible === target) return l
-      if (l.layer) { target ? map.addLayer(l.layer) : map.removeLayer(l.layer) }
-      else l.subLayers.forEach(sl => { target ? (sl.visible && map.addLayer(sl.layer)) : map.removeLayer(sl.layer) })
-      if (!target) removeLabels(l.info.id)
-      return { ...l, visible: target }
-    })
-    applyZOrder(updated); setLayers(updated)
-  }
-
   const toggleSubLayer = (li: number, si: number) => {
     if (!mapRef.current) return
     const map = mapRef.current; const updated = [...layers]; const sl = updated[li].subLayers[si]
@@ -1105,251 +1035,143 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
   }
   const groupLabels: Record<string, string> = { hasil: 'Hasil Analisis', administrasi: 'Administrasi', fasilitas: 'Fasilitas', faktor: 'Faktor Bencana', bencana: 'Rawan Bencana' }
 
-  // ── KARTU LAYER SERAGAM — satu-satunya pusat kontrol ──
-  // Kerangka sama untuk semua: [mata] Nama [gear][zoom][hapus] + pengaturan seragam + daftar isi (kelas/wilayah)
-  const setOpacityFor = (index: number, op: number) => {
-    const clamped = Math.max(0, Math.min(1, Math.round(op * 100) / 100))
-    applyStyle(index, { fillOpacity: clamped })
-  }
   const renderLayerCard = (l: LayerState) => {
     const globalIndex = layers.indexOf(l)
-    const kat = l.info.jenis_bencana?.kategori || 'bencana'
-    const isFasilitas = kat === 'fasilitas'
-    const isAdmin = kat === 'administrasi'
-    const isHasil = kat === 'hasil'
-    const isTiered = l.subLayers.length > 0
-    const op = l.style.fillOpacity ?? 1
-    const opPct = Math.round(op * 100)
-
-    const GARIS_PRESET = [{ w: 0.5, label: 'Tipis' }, { w: 2, label: 'Sedang' }, { w: 4, label: 'Tebal' }]
-
-    // Ganti warna layer tunggal (bukan berkelas)
-    const setWarnaTunggal = (w: string) => {
-      if (isFasilitas) {
-        l.info.warna = w
-        applyStyle(globalIndex, { strokeColor: w })
-      } else if (isAdmin) {
-        // Administrasi: yang berwarna adalah GARIS (stroke), bukan area
-        applyStyle(globalIndex, { strokeColor: w })
-        if (l.layer) (l.layer as any).setStyle?.({ color: w })
-        setLayers(prev => [...prev])
-      } else if (l.layer) {
-        (l.layer as any).setStyle?.({ fillColor: w, color: w })
-        l.info.warna = w
-        setLayers(prev => [...prev])
-      }
-    }
-
     return (
-      <div key={l.info.id} className={`rounded-lg border select-none ${isHasil ? 'border-amber-200 bg-amber-50/40' : 'border-gray-200 bg-white'}`}>
-        {/* Header seragam */}
-        <div className="flex items-center gap-1.5 px-2 py-1.5">
-          {/* Mata */}
-          <button onClick={() => toggleLayer(globalIndex)} title={l.visible ? 'Sembunyikan' : 'Tampilkan'}
-            className={`w-5 h-5 flex items-center justify-center rounded flex-shrink-0 transition-all ${l.visible ? 'text-gray-500 hover:text-gray-700' : 'text-gray-300 hover:text-gray-500'}`}>
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              {l.visible
-                ? <><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></>
-                : <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />}
-            </svg>
+      <div key={l.info.id} draggable
+        onDragStart={() => setDragIndex(globalIndex)}
+        onDragOver={(e) => { e.preventDefault(); setDragOverIndex(globalIndex) }}
+        onDragEnd={() => { if (dragIndex !== null && dragOverIndex !== null) reorderLayers(dragIndex, dragOverIndex); setDragIndex(null); setDragOverIndex(null) }}
+        className={`rounded-lg border transition-all cursor-grab active:cursor-grabbing select-none
+          ${dragOverIndex === globalIndex && dragIndex !== globalIndex ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'}
+          ${dragIndex === globalIndex ? 'opacity-40' : ''}`}>
+        <div className="flex items-center gap-2 px-2.5 py-2">
+          <span className="text-gray-300 text-[10px] leading-none flex-shrink-0">⠿</span>
+          <button onClick={() => toggleLayer(globalIndex)}
+            className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-all
+              ${l.visible ? 'border-blue-600 bg-blue-600' : 'border-gray-300 bg-white'}`}>
+            {l.visible && <span className="text-white text-[8px]">✓</span>}
           </button>
-          {/* Warna tunggal (hanya layer tak-berkelas) */}
-          {!isTiered && (() => {
-            const warnaKini = isAdmin ? (l.style.strokeColor || '#000000')
-              : isFasilitas ? (l.style.strokeColor || l.info.warna || '#3388ff')
-              : (l.info.warna || '#3388ff')
-            return (
-              <div className="relative w-3.5 h-3.5 flex-shrink-0" title="Ganti warna">
-                {/* Admin = tampilkan sebagai cincin (stroke), lain = isi */}
-                {isAdmin
-                  ? <div className="w-3.5 h-3.5 rounded-sm bg-white" style={{ border: `2px solid ${warnaKini}` }} />
-                  : <div className={`w-3.5 h-3.5 border border-black/10 ${isFasilitas ? 'rounded-full' : 'rounded-sm'}`} style={{ background: warnaKini }} />}
-                <input type="color" value={warnaKini}
-                  onChange={e => setWarnaTunggal(e.target.value)}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" style={{ padding: 0, border: 0 }} />
-              </div>
-            )
-          })()}
-          <button onClick={() => toggleStylePanel(globalIndex)} className="text-[10px] text-gray-700 flex-1 text-left truncate font-medium">{l.info.nama}</button>
-          {/* Gear */}
-          <button onClick={() => toggleStylePanel(globalIndex)} title="Pengaturan"
-            className={`w-5 h-5 flex items-center justify-center rounded flex-shrink-0 transition-all ${l.showStylePanel ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.43.992a6.759 6.759 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+          <p className="text-[11px] font-medium text-gray-700 flex-1 truncate">{l.info.nama}</p>
+          <button onClick={() => toggleStylePanel(globalIndex)}
+            className={`text-[10px] px-1.5 py-0.5 rounded border transition-all
+              ${l.showStylePanel ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-400 hover:border-gray-400'}`}>
+            ⚙
           </button>
-          {/* Zoom */}
-          <button onClick={() => zoomToLayer(globalIndex)} title="Zoom ke layer"
-            className="w-5 h-5 flex items-center justify-center rounded flex-shrink-0 text-gray-400 hover:text-blue-600 transition-all">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
-          </button>
-          {/* Hapus */}
-          <button onClick={() => { if (isHasil) clearHasilLayer(); else toggleAvailableLayer(l.info) }} title="Hapus layer"
-            className="w-5 h-5 flex items-center justify-center rounded flex-shrink-0 text-gray-300 hover:text-red-400 transition-all">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+          <button onClick={() => zoomToLayer(globalIndex)}
+            className="text-[10px] px-1.5 py-0.5 rounded border bg-white border-gray-200 text-gray-400 hover:border-gray-400 transition-all">
+            ⊕
           </button>
         </div>
 
-        {/* PENGATURAN SERAGAM (saat gear diklik) */}
-        {l.showStylePanel && (
-          <div className="mx-2 mb-2 pt-2 border-t border-gray-100 flex flex-col gap-2">
-            {/* Opacity: −/+ dan preset (tanpa geser) */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-gray-400 w-10 flex-shrink-0">Opacity</span>
-              <button onClick={() => setOpacityFor(globalIndex, op - 0.1)} className="w-5 h-5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 flex items-center justify-center flex-shrink-0 text-xs">−</button>
-              <span className="text-[10px] text-gray-600 tabular-nums w-8 text-center flex-shrink-0">{opPct}%</span>
-              <button onClick={() => setOpacityFor(globalIndex, op + 0.1)} className="w-5 h-5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 flex items-center justify-center flex-shrink-0 text-xs">+</button>
-              <div className="flex gap-0.5 ml-1">
-                {[25, 50, 75, 100].map(p => (
-                  <button key={p} onClick={() => setOpacityFor(globalIndex, p / 100)}
-                    className={`text-[8px] px-1 py-0.5 rounded border transition-all ${opPct === p ? 'bg-blue-900 text-white border-blue-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>{p}</button>
-                ))}
-              </div>
-            </div>
-            {/* Garis tepi: tebal + Tanpa + warna stroke */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-gray-400 w-10 flex-shrink-0">Garis</span>
-              <div className="flex gap-1 items-center flex-wrap">
-                <button onClick={() => applyStyle(globalIndex, { strokeWidth: 0 })}
-                  className={`text-[9px] px-2 py-0.5 rounded border transition-all ${l.style.strokeWidth < 0.01 ? 'bg-blue-900 text-white border-blue-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>Tanpa</button>
-                {GARIS_PRESET.map(g => (
-                  <button key={g.label} onClick={() => applyStyle(globalIndex, { strokeWidth: g.w })}
-                    className={`text-[9px] px-2 py-0.5 rounded border transition-all ${Math.abs(l.style.strokeWidth - g.w) < 0.01 ? 'bg-blue-900 text-white border-blue-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>{g.label}</button>
-                ))}
-                {/* Warna garis */}
-                <div className="relative w-5 h-5 flex-shrink-0 ml-0.5" title="Warna garis">
-                  <div className="w-5 h-5 rounded border border-gray-200 flex items-center justify-center" style={{ background: l.style.strokeWidth < 0.01 ? '#fff' : l.style.strokeColor }}>
-                    {l.style.strokeWidth < 0.01 && <span className="text-[8px] text-gray-300">—</span>}
-                  </div>
-                  <input type="color" value={l.style.strokeColor || '#ffffff'}
-                    onChange={e => applyStyle(globalIndex, { strokeColor: e.target.value, strokeWidth: l.style.strokeWidth < 0.01 ? 1 : l.style.strokeWidth })}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" style={{ padding: 0, border: 0 }} />
-                </div>
-              </div>
-            </div>
-            {/* Label */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-gray-400 w-10 flex-shrink-0">Label</span>
-              <button onClick={() => applyStyle(globalIndex, { showLabels: !l.style.showLabels })}
-                className={`text-[9px] px-2.5 py-0.5 rounded border font-medium transition-all ${l.style.showLabels ? 'bg-blue-900 text-white border-blue-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>{l.style.showLabels ? 'ON' : 'OFF'}</button>
-            </div>
-          </div>
-        )}
-
-        {/* DAFTAR ISI: kelas (berkelas) atau wilayah (administrasi) */}
-        {isTiered && l.visible && (
-          <div className="mx-2 mb-2 pt-1.5 border-t border-gray-100 flex flex-col gap-1">
-            {sortSubLayers(l.subLayers).map((sl) => {
-              const si = l.subLayers.indexOf(sl)
-              return (
-              <div key={sl.tingkat} className={`flex items-center gap-1.5 ${!sl.visible ? 'opacity-40' : ''}`}>
-                <button onClick={() => toggleSubLayer(globalIndex, si)} title={sl.visible ? 'Sembunyikan kelas' : 'Tampilkan kelas'}
-                  className="w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 flex-shrink-0">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    {sl.visible
-                      ? <><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></>
-                      : <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />}
-                  </svg>
-                </button>
-                <div className="relative w-3 h-3 flex-shrink-0" title="Ganti warna kelas">
-                  <div className="w-3 h-3 rounded-sm border border-black/10" style={{ background: sl.warna }} />
-                  <input type="color" value={sl.warna}
-                    onChange={e => {
-                      const w = e.target.value
-                      const updated = [...layers]
-                      updated[globalIndex] = { ...l, subLayers: l.subLayers.map(s => s.tingkat === sl.tingkat ? { ...s, warna: w } : s) }
-                      ;(sl.layer as any).setStyle?.({ fillColor: w })
-                      ;(sl.layer as any).eachLayer?.((c: any) => {
-                        if (c._icon) {
-                          c._icon.querySelectorAll('div').forEach((d: any) => { if (d.style.background) d.style.background = w })
-                          c._icon.querySelectorAll('polygon, path, circle, rect').forEach((p: any) => p.setAttribute('fill', w))
-                        }
-                      })
-                      setLayers(updated)
-                    }}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" style={{ padding: 0, border: 0 }} />
-                </div>
-                <span className="text-[10px] text-gray-600 capitalize flex-1 truncate">{sl.tingkat}</span>
-              </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Daftar wilayah (administrasi) — pilih Bumi Waras saja dll */}
-        {isAdmin && l.visible && !isTiered && (() => {
-          const names = getWilayahNames(l)
-          if (!names.length) return null
-          const hidden = hiddenWilayah[l.info.id] || []
-          const allHidden = hidden.length >= names.length
-          const tampil = names.length - hidden.length
-          const cari = (wilayahCari[l.info.id] || '').toLowerCase()
-          const terfilter = cari ? names.filter(n => n.toLowerCase().includes(cari)) : names
-          const setHanya = (nama: string) => {
-            const target = names.filter(n => n !== nama)
-            setHiddenWilayah(prev => ({ ...prev, [l.info.id]: target }))
-            const gjl = l.layer as any
-            if (gjl?.eachLayer) gjl.eachLayer((child: any) => {
-              const props = child.feature?.properties || {}
-              const nf = detectNamaFieldMap(props)
-              const childNama = nf ? String(props[nf]) : ''
-              const el = child._path
-              if (el) el.style.display = childNama === nama ? '' : 'none'
-              if (child._icon) child._icon.style.display = childNama === nama ? '' : 'none'
-            })
-          }
+        {l.showStylePanel && l.visible && (() => {
+          const isFasilitas = l.info.jenis_bencana?.kategori === 'fasilitas'
+          const isPoint = l.subLayers.length === 0 && isFasilitas
           return (
-            <div className="mx-2 mb-2 pt-2 border-t border-gray-100">
-              <div className="rounded-lg border border-gray-200 overflow-hidden">
-                {/* Header wilayah */}
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 border-b border-gray-100">
-                  <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" /></svg>
-                  <span className="text-[10px] font-semibold text-gray-600 flex-1">Wilayah</span>
-                  <span className="text-[9px] font-medium text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full tabular-nums">{tampil}/{names.length}</span>
+          <div className="mx-2.5 mb-2.5 pt-2 border-t border-gray-100 flex flex-col gap-2">
+            {isPoint ? (
+              // Point/Fasilitas: warna icon + bentuk icon
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-400 w-14">Warna Icon</span>
+                  <input type="color" value={l.style.strokeColor} className="w-6 h-6 rounded cursor-pointer border border-gray-200"
+                    onChange={(e) => applyStyle(globalIndex, { strokeColor: e.target.value })} />
+                  <span className="text-[10px] text-gray-400 ml-1">Isi</span>
                 </div>
-                {/* Pencarian */}
-                <div className="px-2 py-1.5 border-b border-gray-100">
-                  <div className="flex items-center gap-1.5 bg-gray-50 rounded-md px-2 py-1">
-                    <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
-                    <input value={wilayahCari[l.info.id] || ''} onChange={e => setWilayahCari(prev => ({ ...prev, [l.info.id]: e.target.value }))}
-                      placeholder="Cari wilayah..." className="bg-transparent text-[10px] text-gray-700 flex-1 outline-none placeholder:text-gray-400" />
-                    {cari && <button onClick={() => setWilayahCari(prev => ({ ...prev, [l.info.id]: '' }))} className="text-gray-300 hover:text-gray-500 text-[11px] leading-none flex-shrink-0">✕</button>}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-400 w-14">Ukuran</span>
+                  <input type="range" min="0" max="100" step="5" value={Math.round(l.style.fillOpacity * 100)}
+                    className="flex-1 h-1 accent-blue-600"
+                    onChange={(e) => applyStyle(globalIndex, { fillOpacity: Number(e.target.value) / 100 })} />
+                  <span className="text-[10px] text-gray-500 w-8 text-right">{Math.round(l.style.fillOpacity * 100)}%</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-gray-400 w-14">Bentuk</span>
+                  <div className="flex gap-1 flex-1">
+                    {([
+                      { shape: 'circle' as const, preview: <div className="w-3 h-3 rounded-full bg-current" /> },
+                      { shape: 'square' as const, preview: <div className="w-3 h-3 bg-current" /> },
+                      { shape: 'diamond' as const, preview: <div className="w-2.5 h-2.5 rotate-45 bg-current" /> },
+                      { shape: 'triangle' as const, preview: <svg viewBox="0 0 10 10" className="w-3 h-3"><polygon points="5,1 9,9 1,9" fill="currentColor" /></svg> },
+                      { shape: 'star' as const, preview: <svg viewBox="0 0 24 24" className="w-3 h-3"><path fill="currentColor" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> },
+                    ]).map(({shape, preview}) => (
+                      <button key={shape} onClick={() => applyStyle(globalIndex, { iconShape: shape })}
+                        className={`w-7 h-7 rounded border flex items-center justify-center transition-all
+                          ${l.style.iconShape === shape ? 'bg-blue-900 border-blue-900 text-white' : 'bg-white border-gray-200 text-gray-400 hover:border-gray-400'}`}>
+                        {preview}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                {/* Aksi cepat */}
-                <div className="flex items-center gap-2 px-2.5 py-1 border-b border-gray-100">
-                  <button onClick={() => {
-                    setHiddenWilayah(prev => ({ ...prev, [l.info.id]: [] }))
-                    const gjl = l.layer as any
-                    if (gjl?.eachLayer) gjl.eachLayer((child: any) => { const el = child._path; if (el) el.style.display = ''; if (child._icon) child._icon.style.display = '' })
-                  }} className="text-[9px] text-blue-600 hover:underline">Tampilkan semua</button>
-                  <span className="text-gray-200">·</span>
-                  <button onClick={() => {
-                    setHiddenWilayah(prev => ({ ...prev, [l.info.id]: [...names] }))
-                    const gjl = l.layer as any
-                    if (gjl?.eachLayer) gjl.eachLayer((child: any) => { const el = child._path; if (el) el.style.display = 'none'; if (child._icon) child._icon.style.display = 'none' })
-                  }} className="text-[9px] text-gray-500 hover:underline">Sembunyikan semua</button>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-400 w-14">Label</span>
+                  <button onClick={() => applyStyle(globalIndex, { showLabels: !l.style.showLabels })}
+                    className={`text-[10px] px-2 py-0.5 rounded border font-medium transition-all
+                      ${l.style.showLabels ? 'bg-blue-900 text-white border-blue-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
+                    {l.style.showLabels ? 'ON' : 'OFF'}
+                  </button>
                 </div>
-                {/* Daftar */}
-                <div className="max-h-44 overflow-y-auto py-0.5">
-                  {terfilter.length === 0 && <p className="text-[10px] text-gray-400 text-center py-3">Tidak ditemukan</p>}
-                  {terfilter.map(nama => {
-                    const aktif = !hidden.includes(nama)
-                    return (
-                      <div key={nama} className="group flex items-center gap-2 px-2.5 py-1 hover:bg-blue-50/50 transition-all">
-                        <button onClick={() => toggleWilayahVisibility(l, nama)}
-                          className={`w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0 border transition-all ${aktif ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'}`}>
-                          {aktif && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>}
-                        </button>
-                        <span className={`text-[10px] flex-1 truncate ${aktif ? 'text-gray-700' : 'text-gray-400'}`}>{nama}</span>
-                        <button onClick={() => setHanya(nama)} title="Tampilkan hanya wilayah ini"
-                          className="text-[8px] text-blue-600 opacity-0 group-hover:opacity-100 hover:underline flex-shrink-0 transition-all">hanya ini</button>
-                      </div>
-                    )
-                  })}
+              </>
+            ) : (
+              // Polygon/Administrasi/Bencana
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-400 w-12">Opacity</span>
+                  <input type="range" min="0" max="100" step="5" value={Math.round(l.style.fillOpacity * 100)}
+                    className="flex-1 h-1 accent-blue-600"
+                    onChange={(e) => applyStyle(globalIndex, { fillOpacity: Number(e.target.value) / 100 })} />
+                  <span className="text-[10px] text-gray-500 w-8 text-right">{Math.round(l.style.fillOpacity * 100)}%</span>
                 </div>
-              </div>
-            </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-400 w-12">Garis</span>
+                  <input type="color" value={l.style.strokeColor} className="w-5 h-5 rounded cursor-pointer border-0"
+                    onChange={(e) => applyStyle(globalIndex, { strokeColor: e.target.value })} />
+                  <input type="range" min="0" max="5" step="0.5" value={l.style.strokeWidth}
+                    className="flex-1 h-1 accent-gray-500"
+                    onChange={(e) => applyStyle(globalIndex, { strokeWidth: Number(e.target.value) })} />
+                  <span className="text-[10px] text-gray-500 w-5 text-right">{l.style.strokeWidth}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-gray-400 w-12">Style</span>
+                  <div className="flex gap-1 flex-1">
+                    {DASH_OPTIONS.map(d => (
+                      <button key={d.id} onClick={() => applyStyle(globalIndex, { dashArray: d.id })}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border font-medium transition-all
+                          ${l.style.dashArray === d.id ? 'bg-blue-900 text-white border-blue-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-400 w-12">Label</span>
+                  <button onClick={() => applyStyle(globalIndex, { showLabels: !l.style.showLabels })}
+                    className={`text-[10px] px-2 py-0.5 rounded border font-medium transition-all
+                      ${l.style.showLabels ? 'bg-blue-900 text-white border-blue-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
+                    {l.style.showLabels ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           )
         })()}
+
+        {l.subLayers.length > 0 && l.visible && !l.showStylePanel && (
+          <div className="mx-2.5 mb-2.5 pt-1.5 border-t border-gray-100 flex flex-col gap-1">
+            {l.subLayers.map((sl, si) => (
+              <div key={sl.tingkat} className="flex items-center gap-2 pl-2">
+                <button onClick={() => toggleSubLayer(globalIndex, si)}
+                  className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 transition-all
+                    ${sl.visible ? 'border-gray-400 bg-gray-400' : 'border-gray-300 bg-white'}`}>
+                  {sl.visible && <span className="text-white text-[7px]">✓</span>}
+                </button>
+                <div className="w-3 h-3 rounded-sm flex-shrink-0 border border-black/10" style={{ background: sl.warna }} />
+                <span className="text-[10px] text-gray-600 capitalize flex-1 truncate">{sl.tingkat}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -1372,41 +1194,14 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
       onMouseUp={() => { swipeDragging.current = false }}
       onMouseLeave={() => { swipeDragging.current = false }}>
 
-      {/* ── ICON RAIL (kiri) — 3 ikon ── */}
-      <div className={`absolute z-[1002] flex flex-col items-center gap-1 bg-blue-950 shadow-xl ${compact ? 'rounded-xl py-1.5 px-1' : 'rounded-2xl py-2.5 px-1.5'}`}
-        style={{ top: compact ? 8 : 12, left: compact ? 8 : 12 }}>
-        {([
-          { key: 'layer', label: 'Layer', d: 'M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3' },
-          { key: 'basemap', label: 'Peta', d: 'M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z' },
-          { key: 'analisis', label: 'Analisis', d: 'M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z' },
-        ] as { key: 'layer'|'basemap'|'analisis'; label: string; d: string }[]).map(it => (
-          <button key={it.key} title={it.label}
-            onClick={() => setActiveFlyout(prev => prev === it.key ? null : it.key)}
-            className={`rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all ${compact ? 'w-8 h-8' : 'w-10 h-10'}
-              ${activeFlyout === it.key ? 'bg-white text-blue-950' : 'text-blue-200 hover:bg-white/10'}`}>
-            <svg className={compact ? 'w-3.5 h-3.5' : 'w-4.5 h-4.5'} width={compact ? 14 : 18} height={compact ? 14 : 18} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d={it.d} />
-            </svg>
-            <span className={`font-semibold leading-none ${compact ? 'text-[6px]' : 'text-[7px]'}`}>{it.label}</span>
-          </button>
-        ))}
-      </div>
+      {/* Toggle panel */}
+      <button onClick={() => setPanelOpen(!panelOpen)}
+        className="absolute top-3 z-[1001] w-7 h-7 bg-white rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 shadow-md transition-all"
+        style={{ left: panelOpen ? '308px' : '12px' }}>
+        <span className="text-[10px] text-gray-400">{panelOpen ? '‹' : '›'}</span>
+      </button>
 
-      {/* ── TOMBOL INTIP PETA DASAR (toggle) — muncul saat ada layer aktif ── */}
-      {layers.length > 0 && !activeFlyout && (
-        <button onClick={togglePeekBasemap} title={peekBasemap ? 'Tampilkan kembali layer' : 'Sembunyikan semua layer untuk lihat peta dasar'}
-          className={`absolute z-[1001] flex items-center gap-1.5 rounded-full shadow-lg font-semibold transition-all
-            ${compact ? 'text-[9px] px-2.5 py-1' : 'text-[11px] px-3.5 py-1.5'}
-            ${peekBasemap ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-white/95 backdrop-blur text-gray-700 border border-gray-200 hover:bg-gray-50'}`}
-          style={{ top: compact ? 8 : 12, left: compact ? 52 : 68 }}>
-          <svg className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            {peekBasemap
-              ? <><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></>
-              : <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />}
-          </svg>
-          {peekBasemap ? 'Tampilkan Layer' : 'Intip Peta Dasar'}
-        </button>
-      )}
+      {/* Tool active indicator */}
       {toolActive && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1001] bg-amber-500 text-white text-xs font-medium px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
           <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
@@ -1414,244 +1209,8 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
         </div>
       )}
 
-      {/* ── FLYOUT PANEL (muncul di samping rail saat activeFlyout != null) ── */}
-      <div className="absolute top-0 z-[1000] h-full transition-all duration-300 ease-in-out"
-        style={{ left: compact ? 54 : 76, opacity: activeFlyout ? 1 : 0, transform: activeFlyout ? 'translateX(0)' : 'translateX(-12px)', pointerEvents: activeFlyout ? 'auto' : 'none' }}>
-        <div className={`${compact ? 'w-[280px] my-2 rounded-xl' : 'w-[290px] my-3 rounded-2xl'} flex flex-col bg-white border border-gray-200 shadow-xl overflow-hidden`} style={{ maxHeight: compact ? 'calc(125% - 20px)' : 'calc(100% - 24px)', zoom: compact ? 0.8 : 1 }}>
-
-          {/* Header flyout dinamis */}
-          <div className={`border-b border-gray-100 flex items-center gap-2.5 flex-shrink-0 ${compact ? 'px-3 py-2' : 'px-4 py-3'}`}>
-            <div className={`rounded-lg bg-blue-950 flex items-center justify-center flex-shrink-0 ${compact ? 'w-6 h-6' : 'w-8 h-8'}`}>
-              <svg className={compact ? 'w-3 h-3 text-white' : 'w-4 h-4 text-white'} fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" />
-              </svg>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className={`font-bold text-gray-800 leading-tight ${compact ? 'text-[11px]' : 'text-[13px]'}`}>
-                {activeFlyout === 'layer' ? 'Layer' : activeFlyout === 'basemap' ? 'Peta Dasar' : 'Analisis Spasial'}
-              </p>
-              {!compact && <p className="text-[10px] text-gray-400">Lampung Edu Gisaster</p>}
-            </div>
-            <button onClick={() => setActiveFlyout(null)} title="Tutup"
-              className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-all flex-shrink-0">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
-
-          {/* Wilayah — tampil di flyout Layer & Basemap */}
-          {(activeFlyout === 'layer' || activeFlyout === 'basemap') && (
-          <div className="px-4 py-2.5 border-b border-gray-100 flex-shrink-0">
-            <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Wilayah</p>
-            <select className="w-full text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400/20 appearance-none cursor-pointer"
-              onChange={(e) => setSelectedKabupaten(Number(e.target.value))} value={selectedKabupaten || ''}>
-              <option value="">Pilih Kabupaten / Kota</option>
-              {kabupatenList.map(kab => <option key={kab.id} value={kab.id}>{kab.nama}</option>)}
-            </select>
-          </div>
-          )}
-
-          {/* Basemap — hanya di flyout Basemap */}
-          {activeFlyout === 'basemap' && (
-          <div className="px-4 py-2.5 flex-shrink-0 overflow-y-auto">
-            <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Pilih Peta Dasar</p>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: 'terrain', label: 'Terrain', thumb: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/5/16/26' },
-                { id: 'osm', label: 'OSM', thumb: 'https://tile.openstreetmap.org/5/26/16.png' },
-                { id: 'topo', label: 'Topo', thumb: 'https://tile.opentopomap.org/5/26/16.png' },
-                { id: 'satelit', label: 'Satelit', thumb: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/5/16/26' },
-                { id: 'hillshade', label: 'Hillshade', thumb: 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/5/16/26' },
-                { id: 'light', label: 'Light', thumb: 'https://a.basemaps.cartocdn.com/light_all/5/26/16.png' },
-                { id: 'dark', label: 'Dark', thumb: 'https://a.basemaps.cartocdn.com/dark_all/5/26/16.png' },
-              ].map(bm => (
-                <button key={bm.id} onClick={() => switchBasemap(bm.id)}
-                  className={`relative rounded-lg overflow-hidden transition-all ${activeBasemap === bm.id ? 'ring-2 ring-blue-500 ring-offset-1' : 'opacity-70 hover:opacity-100'}`}>
-                  <img src={bm.thumb} alt={bm.label} className="w-full h-12 object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                  <div className={`absolute inset-0 flex items-end justify-center pb-0.5 ${activeBasemap === bm.id ? 'bg-blue-600/30' : 'bg-black/25'}`}>
-                    <span className="text-white text-[9px] font-bold drop-shadow">{bm.label}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-            {/* Label Jalan & POI toggle */}
-            <button onClick={() => { setShowGoogleLabels(!showGoogleLabels); setGoogleLabelsVisible(true) }}
-              className={`w-full mt-3 flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition-all border
-                ${showGoogleLabels ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50 border-gray-100'}`}>
-              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${showGoogleLabels ? 'border-blue-600 bg-blue-600' : 'border-gray-300'}`}>
-                {showGoogleLabels && <span className="text-white text-[8px]">✓</span>}
-              </div>
-              <span className="text-[11px] text-gray-700 flex-1">Label Jalan & POI</span>
-            </button>
-          </div>
-          )}
-
-          {/* Konten Layer / Analisis */}
-          {(activeFlyout === 'layer' || activeFlyout === 'analisis') && (
-          <div className="flex-1 overflow-y-auto min-h-0">
-
-            {/* ── LAYER (dua tab: Layer Aktif & Pilih Layer) ── */}
-            {activeFlyout === 'layer' && (
-              <div className="flex flex-col">
-                {/* Tab switcher */}
-                <div className="flex gap-1 px-3 pt-3 pb-2 sticky top-0 bg-white z-10 border-b border-gray-100">
-                  <button onClick={() => setLayerTab('aktif')}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all
-                      ${layerTab === 'aktif' ? 'bg-blue-950 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                    Layer Aktif
-                    {layers.length > 0 && (
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full leading-none ${layerTab === 'aktif' ? 'bg-white/25 text-white' : 'bg-blue-100 text-blue-700'}`}>{layers.length}</span>
-                    )}
-                  </button>
-                  <button onClick={() => setLayerTab('pilih')}
-                    className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all
-                      ${layerTab === 'pilih' ? 'bg-blue-950 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                    Pilih Layer
-                  </button>
-                </div>
-
-                {/* TAB: Layer Aktif */}
-                {layerTab === 'aktif' && (
-                  <div className="px-4 py-3">
-                    {layers.length > 0 ? (
-                      <>
-                        {/* Aksi cepat visibilitas */}
-                        <div className="flex items-center gap-2 mb-2.5 pb-2 border-b border-gray-100">
-                          <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider flex-1">Tampilan</span>
-                          <button onClick={() => setSemuaLayerVisible(true)}
-                            className="text-[9px] font-medium text-blue-700 hover:bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md transition-all">Tampilkan semua</button>
-                          <button onClick={() => setSemuaLayerVisible(false)}
-                            className="text-[9px] font-medium text-gray-500 hover:bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-md transition-all">Sembunyikan semua</button>
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          {layers.map(l => renderLayerCard(l))}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-center py-8 px-3">
-                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-2">
-                          <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" /></svg>
-                        </div>
-                        <p className="text-[11px] text-gray-500 font-medium mb-1">Belum ada layer aktif</p>
-                        <p className="text-[10px] text-gray-400 mb-3">Buka "Pilih Layer" untuk menambahkan layer ke peta.</p>
-                        <button onClick={() => setLayerTab('pilih')}
-                          className="text-[11px] font-semibold text-white bg-blue-950 hover:bg-blue-900 px-4 py-1.5 rounded-lg transition-all">
-                          + Pilih Layer
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* TAB: Pilih Layer (katalog) */}
-                {layerTab === 'pilih' && (
-                  <div className="px-4 py-3">
-                    {availableLayers.length > 0 ? (
-                      <>
-                        <p className="text-[10px] text-gray-400 mb-2">Centang layer untuk menampilkannya di peta.</p>
-                        {(['administrasi', 'fasilitas', 'faktor', 'bencana'] as const).map(kat => {
-                          const group = availableLayers.filter((l: any) => {
-                            const k = l.jenis_bencana?.kategori || 'bencana'
-                            return kat === 'bencana' ? !['administrasi','fasilitas','faktor'].includes(k) : k === kat
-                          })
-                          if (!group.length) return null
-                          return (
-                            <div key={kat} className="mb-2.5">
-                              <p className="text-[9px] font-bold text-gray-300 uppercase tracking-widest mb-1">{groupLabels[kat]}</p>
-                              {group.map((l: any) => {
-                                const isOn = selectedLayerIds.has(l.id)
-                                const isLoading = loadingLayerIds.has(l.id)
-                                return (
-                                  <button key={l.id} onClick={() => toggleAvailableLayer(l as LayerPeta)}
-                                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg mb-0.5 text-left transition-all
-                                      ${isOn ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50 border border-transparent'}`}>
-                                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all
-                                      ${isOn ? 'border-blue-600 bg-blue-600' : 'border-gray-300'}`}>
-                                      {isOn && !isLoading && <span className="text-white text-[8px]">✓</span>}
-                                      {isLoading && <div className="w-2 h-2 border border-white border-t-transparent rounded-full animate-spin" />}
-                                    </div>
-                                    <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: l.warna || '#3388ff' }} />
-                                    <span className="text-[11px] text-gray-700 flex-1 truncate">{l.nama}</span>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          )
-                        })}
-                        {layers.length > 0 && (
-                          <button onClick={() => setLayerTab('aktif')}
-                            className="w-full mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-blue-700 border border-blue-200 hover:bg-blue-50 py-1.5 rounded-lg transition-all">
-                            Lihat Layer Aktif ({layers.length})
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <div className="text-center py-10">
-                        <p className="text-[11px] text-gray-400">{selectedKabupaten ? 'Tidak ada layer tersedia' : 'Pilih wilayah dulu untuk melihat layer'}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── ANALISIS SPASIAL ── */}
-            {activeFlyout === 'analisis' && (
-              <div className="divide-y divide-gray-100">
-                {ANALISIS_TOOLS.map(item => (
-                  <div key={item.key}>
-                    <button
-                      onClick={() => {
-                        if (activeToolKey === item.key) { setActiveToolKey(null); handleMenuChange('layer') }
-                        else { setActiveToolKey(item.key); handleMenuChange(item.key) }
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all
-                        ${activeToolKey === item.key ? 'bg-blue-950 text-white' : 'hover:bg-gray-50'}`}>
-                      <span className={activeToolKey === item.key ? 'text-white' : 'text-blue-800'}>{item.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-[12px] font-semibold leading-tight ${activeToolKey === item.key ? 'text-white' : 'text-gray-800'}`}>{item.label}</p>
-                        <p className={`text-[10px] mt-0.5 ${activeToolKey === item.key ? 'text-blue-200' : 'text-gray-400'}`}>{item.desc}</p>
-                      </div>
-                      <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${activeToolKey === item.key ? 'rotate-180 text-blue-300' : 'text-gray-300'}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                      </svg>
-                    </button>
-                    {activeToolKey === item.key && (
-                      <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
-                        {item.key === 'ukur' && <MeasureControl map={mapRef.current} onToolStateChange={handleToolStateChange} />}
-                        {item.key === 'crosssection' && <CrossSection map={mapRef.current} onToolStateChange={handleToolStateChange} />}
-                        {item.key === 'overlay' && (
-                          <OverlayControl
-                            layers={layers}
-                            onIntersectResult={handleIntersectResult}
-                            onHasilLayer={addHasilLayer}
-                            onClearHasilLayer={clearHasilLayer}
-                            onRequestActivateLayer={() => setActiveFlyout('layer')}
-                          />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-          </div>
-          )}
-
-          {/* Footer */}
-          <div className="px-4 py-2 border-t border-gray-100 flex-shrink-0">
-            <p className="text-[9px] text-gray-300 text-center">FKIP Universitas Lampung · WGS84</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── PANEL LAMA (disembunyikan, dipertahankan agar tidak merusak struktur) ── */}
-      <div className="hidden">
-        <div className="absolute top-0 left-0 z-[1000] h-full transition-transform duration-300 ease-in-out"
+      {/* ── LEFT PANEL ── */}
+      <div className="absolute top-0 left-0 z-[1000] h-full transition-transform duration-300 ease-in-out"
         style={{ transform: panelOpen ? 'translateX(0)' : 'translateX(-100%)' }}>
         <div className="w-[300px] h-full flex flex-col bg-white border-r border-gray-200 shadow-sm">
 
@@ -1887,7 +1446,6 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
           </div>
         </div>
       </div>
-      </div>
 
       {/* Swipe divider */}
       {swipeActive && (
@@ -1922,8 +1480,7 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
         hoverCoord={hoverCoord} clickCoord={clickCoord}
         elevation={hoverElevation}
         copied={coordCopied}
-        compact={compact}
-        bottomOffset={compact ? 8 : 12}
+        bottomOffset={hasilLayers.length > 0 ? (hasilSheetOpen ? hasilSheetHeight + 16 : 52) : 12}
         onCopy={() => {
           if (!clickCoord) return
           navigator.clipboard.writeText(`${clickCoord.lat.toFixed(6)}, ${clickCoord.lng.toFixed(6)}`)
@@ -1931,142 +1488,198 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
         }}
         onClear={() => setClickCoord(null)} />
 
-      {/* ── HASIL ANALISIS: KOTAK RINGKASAN KECIL (kiri bawah, DI ATAS status bar) ── */}
+      {/* ── BOTTOM SHEET HASIL ANALISIS ── */}
       {hasilLayers.length > 0 && (
-        <div className="absolute z-[999] transition-all duration-300 ease-in-out"
-          style={{ left: activeFlyout ? (compact ? '280px' : '392px') : (compact ? '52px' : '88px'), bottom: compact ? 34 : 52, maxWidth: compact ? '280px' : '280px', zoom: compact ? 0.8 : 1 }}>
-          {hasilLayers.map(hl => {
-            const mode = hl.meta?.mode
-            // Hitung headline ringkas per mode
-            let headline = ''
-            let sub = ''
-            if (mode === 'fasilitas') {
-              const rows = hl.meta?.fasilitasRows || []
-              headline = `${rows.length} fasilitas terdampak`
-              const perLayer = [...new Set(rows.map(r => r.layerNama))]
-              sub = perLayer.length > 1 ? `${perLayer.length} jenis fasilitas` : (perLayer[0] || '')
-            } else if (mode === 'faktor') {
-              const rows = hl.meta?.faktorRows || []
-              const top = [...rows].sort((a, b) => b.persen - a.persen)[0]
-              headline = top ? `${top.label}: ${top.persen}%` : 'Analisis faktor'
-              sub = 'proporsi tertinggi di zona bahaya'
-            } else {
-              let total = 0
-              hl.subLayers.forEach(sl => { try { total += (sl.layer as any).toGeoJSON?.()?.features?.length ?? 0 } catch (_) {} })
-              headline = `${hl.subLayers.length} kelas hasil overlay`
-              sub = total > 0 ? `${total} fitur` : ''
-            }
-            return (
-              <div key={hl.info.id} className="bg-white/95 backdrop-blur border border-gray-200 rounded-xl shadow-lg overflow-hidden">
-                {/* Baris ringkas */}
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <span className="w-6 h-6 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-3.5 h-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" /></svg>
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-bold text-gray-800 leading-tight truncate">{headline}</p>
-                    {sub && <p className="text-[9px] text-gray-400 leading-tight truncate">{sub}</p>}
+        <div className="absolute bottom-0 right-0 z-[999] transition-all duration-300 ease-in-out"
+          style={{ left: panelOpen ? '300px' : '0px' }}>
+          <div ref={hasilSheetRef} className="mx-3 bg-white border border-gray-200 border-b-0 rounded-t-xl shadow-lg overflow-hidden">
+            {hasilLayers.map(hl => {
+              const mode = hl.meta?.mode
+              const jumlahKelas = hl.subLayers.length
+              return (
+                <div key={hl.info.id}>
+                  {/* Header */}
+                  <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-amber-50/50">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                    <p className="text-[11px] font-bold text-gray-800 flex-1 truncate">{hl.info.nama}</p>
+                    <span className="text-[9px] text-gray-400 flex-shrink-0">{jumlahKelas} kelas</span>
+                    <button onClick={() => setHasilSheetOpen(o => !o)} title={hasilSheetOpen ? 'Tutup ringkasan' : 'Buka ringkasan'}
+                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-all flex-shrink-0">
+                      <svg className={`w-3.5 h-3.5 transition-transform ${hasilSheetOpen ? '' : 'rotate-180'}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
+                    <button onClick={clearHasilLayer} title="Hapus hasil analisis"
+                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-all flex-shrink-0">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
-                  <button onClick={() => setHasilSheetOpen(o => !o)} title={hasilSheetOpen ? 'Sembunyikan rincian' : 'Lihat rincian'}
-                    className="text-[9px] font-semibold text-blue-700 hover:text-blue-900 flex items-center gap-0.5 flex-shrink-0">
-                    {hasilSheetOpen ? 'Tutup' : 'Rincian'}
-                    <svg className={`w-3 h-3 transition-transform ${hasilSheetOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" /></svg>
-                  </button>
-                  <button onClick={clearHasilLayer} title="Hapus hasil"
-                    className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-all flex-shrink-0">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-                  </button>
-                </div>
 
-                {/* Rincian (muncul saat diklik) — tetap kecil & scroll */}
-                {hasilSheetOpen && (
-                  <div className="px-3 pb-3 pt-1 border-t border-gray-100 max-h-[300px] overflow-y-auto" style={{ width: compact ? '210px' : '280px' }}>
+                  {hasilSheetOpen && (
+                    <div className="px-4 py-3 max-h-[230px] overflow-y-auto">
 
-                    {/* FASILITAS */}
-                    {mode === 'fasilitas' && (() => {
-                      const rows = hl.meta?.fasilitasRows || []
-                      if (rows.length === 0) return <p className="text-[10px] text-gray-400 italic pt-2">Tidak ada fasilitas terdampak.</p>
-                      const perLayer = [...new Set(rows.map(r => r.layerNama))].map(nama => ({ layerNama: nama, items: rows.filter(r => r.layerNama === nama) }))
-                      return (
-                        <div className="flex flex-col gap-1.5 pt-1">
-                          {perLayer.map(grp => {
-                            const key = `${hl.info.id}_${grp.layerNama}`
-                            const isOpen = hasilExpand[key] === true
-                            return (
-                              <div key={grp.layerNama} className="border border-gray-100 rounded-lg overflow-hidden">
-                                <button onClick={() => setHasilExpand(p => ({ ...p, [key]: !isOpen }))}
-                                  className="w-full flex items-center gap-1.5 px-2 py-1.5 bg-gray-50 hover:bg-gray-100 transition-all text-left">
-                                  <svg className={`w-2.5 h-2.5 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                                  <span className="text-[10px] font-semibold text-gray-700 flex-1 truncate">{grp.layerNama}</span>
-                                  <span className="text-[9px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full flex-shrink-0">{grp.items.length}</span>
-                                </button>
-                                {isOpen && (
-                                  <div className="divide-y divide-gray-50 max-h-32 overflow-y-auto">
-                                    {grp.items.map((it, i) => (
-                                      <div key={i} className="flex items-center gap-1.5 px-2 py-1">
-                                        <span className="text-[8px] text-gray-300 w-3 text-right flex-shrink-0">{i + 1}</span>
-                                        <span className="text-[10px] text-gray-600 flex-1 min-w-0 truncate">{it.nama}</span>
-                                      </div>
-                                    ))}
+                      {/* ═══ MODE FASILITAS: daftar nama sekolah per layer, bisa di-expand ═══ */}
+                      {mode === 'fasilitas' && (() => {
+                        const rows = hl.meta?.fasilitasRows || []
+                        if (rows.length === 0) return <p className="text-[11px] text-gray-400 italic">Tidak ada fasilitas terdampak.</p>
+                        const perLayer = [...new Set(rows.map(r => r.layerNama))].map(nama => ({
+                          layerNama: nama, items: rows.filter(r => r.layerNama === nama)
+                        }))
+                        return (
+                          <div className="flex flex-col gap-2">
+                            {perLayer.map(grp => {
+                              const key = `${hl.info.id}_${grp.layerNama}`
+                              const isOpen = hasilExpand[key] !== false // default terbuka
+                              return (
+                                <div key={grp.layerNama} className="border border-gray-100 rounded-lg overflow-hidden">
+                                  <button onClick={() => setHasilExpand(p => ({ ...p, [key]: !isOpen }))}
+                                    className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50/70 hover:bg-gray-100 transition-all text-left">
+                                    <svg className={`w-3 h-3 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                                    </svg>
+                                    <span className="text-[11px] font-bold text-gray-700 flex-1">{grp.layerNama}</span>
+                                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{grp.items.length} terdampak</span>
+                                  </button>
+                                  {isOpen && (
+                                    <div className="divide-y divide-gray-50">
+                                      {grp.items.map((it, i) => (
+                                        <div key={i} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50">
+                                          <span className="text-[9px] text-gray-300 w-4 text-right flex-shrink-0">{i + 1}</span>
+                                          <span className="text-[11px] text-gray-700 flex-1 min-w-0 truncate">{it.nama}</span>
+                                          {it.tingkat && (
+                                            <span className="text-[8px] px-1.5 py-0.5 rounded font-semibold capitalize flex-shrink-0"
+                                              style={{ background: (WARNA_TINGKAT[it.tingkat.toLowerCase()] || '#94a3b8') + '25', color: WARNA_TINGKAT[it.tingkat.toLowerCase()] || '#64748b' }}>
+                                              {it.tingkat}
+                                            </span>
+                                          )}
+                                          {it.wilayah && <span className="text-[8px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 flex-shrink-0">{it.wilayah}</span>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      })()}
+
+                      {/* ═══ MODE FAKTOR: bar chart % + tabel 3 kolom + catatan netral ═══ */}
+                      {mode === 'faktor' && (() => {
+                        const rows = hl.meta?.faktorRows || []
+                        if (rows.length === 0) return <p className="text-[11px] text-gray-400 italic">Tidak ada data faktor.</p>
+                        const top = [...rows].sort((a, b) => b.persen - a.persen)[0]
+                        return (
+                          <div className="flex flex-col gap-3">
+                            {/* Bar chart */}
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-2">Proporsi area tiap kelas yang berada di zona bahaya (Rawan + Sangat Rawan)</p>
+                              <div className="flex flex-col gap-1.5">
+                                {rows.map(r => (
+                                  <div key={r.skor} className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-sm flex-shrink-0 border border-black/10" style={{ background: r.warna }} />
+                                    <span className="text-[10px] text-gray-600 w-32 flex-shrink-0 truncate" title={r.label}>{r.label}</span>
+                                    <div className="flex-1 h-3.5 bg-gray-100 rounded overflow-hidden min-w-[60px]">
+                                      <div className="h-full rounded transition-all duration-500"
+                                        style={{ width: `${Math.min(r.persen, 100)}%`, background: r.warna }} />
+                                    </div>
+                                    <span className="text-[10px] font-bold tabular-nums w-11 text-right flex-shrink-0"
+                                      style={{ color: r.persen >= 50 ? '#C0392B' : r.persen >= 25 ? '#E67E22' : '#64748b' }}>
+                                      {r.persen}%
+                                    </span>
                                   </div>
-                                )}
+                                ))}
                               </div>
-                            )
-                          })}
-                        </div>
-                      )
-                    })()}
+                            </div>
 
-                    {/* FAKTOR — bar ringkas */}
-                    {mode === 'faktor' && (() => {
-                      const rows = hl.meta?.faktorRows || []
-                      if (rows.length === 0) return <p className="text-[10px] text-gray-400 italic pt-2">Tidak ada data faktor.</p>
-                      return (
-                        <div className="flex flex-col gap-1.5 pt-2">
-                          {rows.map(r => (
-                            <div key={r.skor} className="flex items-center gap-1.5">
-                              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 border border-black/10" style={{ background: r.warna }} />
-                              <span className="text-[9px] text-gray-600 w-20 flex-shrink-0 truncate" title={r.label}>{r.label}</span>
-                              <div className="flex-1 h-2.5 bg-gray-100 rounded overflow-hidden min-w-[40px]">
-                                <div className="h-full rounded" style={{ width: `${Math.min(r.persen, 100)}%`, background: r.warna }} />
+                            {/* Tabel 3 kolom */}
+                            <div className="overflow-x-auto">
+                              <table className="w-full border-collapse">
+                                <thead>
+                                  <tr className="border-b border-gray-200">
+                                    <th className="text-left text-[9px] font-bold text-gray-400 uppercase tracking-wide py-1.5 pr-2">Kelas Faktor</th>
+                                    <th className="text-right text-[9px] font-bold text-gray-400 uppercase tracking-wide py-1.5 px-2">Luas Total</th>
+                                    <th className="text-right text-[9px] font-bold text-gray-400 uppercase tracking-wide py-1.5 px-2">Di Zona Bahaya</th>
+                                    <th className="text-right text-[9px] font-bold text-gray-400 uppercase tracking-wide py-1.5 pl-2">%</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rows.map(r => (
+                                    <tr key={r.skor} className="border-b border-gray-50">
+                                      <td className="py-1.5 pr-2">
+                                        <span className="flex items-center gap-1.5">
+                                          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: r.warna }} />
+                                          <span className="text-[10px] text-gray-700 truncate">{r.label}</span>
+                                        </span>
+                                      </td>
+                                      <td className="text-right text-[10px] text-gray-600 tabular-nums py-1.5 px-2">{r.total_ha.toLocaleString('id')} ha</td>
+                                      <td className="text-right text-[10px] text-gray-600 tabular-nums py-1.5 px-2">{r.rawan_ha.toLocaleString('id')} ha</td>
+                                      <td className="text-right text-[10px] font-semibold tabular-nums py-1.5 pl-2">{r.persen}%</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Catatan netral — tidak menyimpulkan sebab-akibat */}
+                            {top && top.persen > 0 && (
+                              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                                <p className="text-[10px] text-slate-600 leading-relaxed">
+                                  Kelas <b>{top.label}</b> memiliki proporsi tumpang-tindih tertinggi
+                                  dengan zona bahaya ({top.persen}% dari luasnya).
+                                  <span className="text-slate-400"> Catatan: proporsi tinggi belum tentu berarti penyebab —
+                                  perhatikan juga luas absolutnya di kolom "Di Zona Bahaya".</span>
+                                </p>
                               </div>
-                              <span className="text-[9px] font-bold tabular-nums w-8 text-right flex-shrink-0" style={{ color: r.persen >= 50 ? '#C0392B' : r.persen >= 25 ? '#E67E22' : '#64748b' }}>{r.persen}%</span>
-                            </div>
-                          ))}
-                          <p className="text-[8px] text-gray-400 pt-1 leading-relaxed">Proporsi area tiap kelas di zona bahaya (Rawan + Sangat Rawan). Proporsi tinggi belum tentu penyebab.</p>
-                        </div>
-                      )
-                    })()}
+                            )}
+                          </div>
+                        )
+                      })()}
 
-                    {/* ADMINISTRASI / DEFAULT — daftar kelas ringkas */}
-                    {mode !== 'fasilitas' && mode !== 'faktor' && (() => {
-                      const kelasStats = sortSubLayers(hl.subLayers).map(sl => {
-                        let count = 0, luas = 0
-                        try {
-                          const gj = (sl.layer as any).toGeoJSON?.()
-                          count = gj?.features?.length ?? 0
-                          for (const f of (gj?.features || [])) { const v = parseFloat(f.properties?._luas_ha); if (!isNaN(v)) luas += v }
-                        } catch (_) {}
-                        return { tingkat: sl.tingkat, warna: sl.warna, count, luas: Math.round(luas * 10) / 10 }
-                      })
-                      return (
-                        <div className="flex flex-col gap-1 pt-2">
-                          {kelasStats.map(k => (
-                            <div key={k.tingkat} className="flex items-center gap-1.5">
-                              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 border border-black/10" style={{ background: k.warna }} />
-                              <span className="text-[10px] text-gray-700 capitalize flex-1 truncate">{k.tingkat}</span>
-                              <span className="text-[9px] text-gray-400 tabular-nums flex-shrink-0">{k.luas > 0 ? `${k.luas.toLocaleString('id')} ha` : `${k.count} fitur`}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    })()}
+                      {/* ═══ MODE ADMINISTRASI / DEFAULT: grid ringkas per kelas ═══ */}
+                      {mode !== 'fasilitas' && mode !== 'faktor' && (() => {
+                        const kelasStats = hl.subLayers.map(sl => {
+                          let count = 0, luas = 0
+                          try {
+                            const gj = (sl.layer as any).toGeoJSON?.()
+                            count = gj?.features?.length ?? 0
+                            for (const f of (gj?.features || [])) {
+                              const v = parseFloat(f.properties?._luas_ha)
+                              if (!isNaN(v)) luas += v
+                            }
+                          } catch (_) {}
+                          return { tingkat: sl.tingkat, warna: sl.warna, visible: sl.visible, count, luas: Math.round(luas * 10) / 10 }
+                        })
+                        return (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
+                            {kelasStats.map(k => (
+                              <div key={k.tingkat} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border border-gray-100 bg-gray-50/60 min-w-0 ${!k.visible ? 'opacity-40' : ''}`}>
+                                <div className="w-3 h-3 rounded-sm flex-shrink-0 border border-black/10" style={{ background: k.warna }} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-semibold text-gray-700 capitalize truncate leading-tight">{k.tingkat}</p>
+                                  <p className="text-[9px] text-gray-400 leading-tight">
+                                    {k.luas > 0 ? `${k.luas.toLocaleString('id')} ha` : `${k.count} fitur`}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                            <p className="col-span-full text-[8px] text-gray-300 pt-0.5">
+                              Atur warna, kelas, dan opacity hasil di panel Legenda kanan
+                            </p>
+                          </div>
+                        )
+                      })()}
 
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -2075,53 +1688,458 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
         <SearchControl map={mapRef.current} layers={layers} />
       </div>
 
-      {/* ── LEGENDA READ-ONLY (kartu mengambang kanan bawah, DI ATAS tombol zoom) ── */}
+      {/* ── LEGENDA KANAN ── */}
       {(layers.length > 0 || showGoogleLabels) && (
-        <div className={`absolute right-3 z-[1000] ${compact ? 'w-[175px]' : 'w-[180px]'}`} style={{ bottom: compact ? 66 : 92, zoom: compact ? 0.8 : 1 }}>
-          <div className="bg-white/95 backdrop-blur border border-gray-200 rounded-xl shadow-lg overflow-hidden select-none">
-            <button onClick={() => setLegendOpen(!legendOpen)} className="w-full flex items-center justify-between px-3 py-1.5 border-b border-gray-100 hover:bg-gray-50 transition-all">
-              <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">Legenda</span>
-              <svg className={`w-3 h-3 text-gray-400 transition-transform ${legendOpen ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-              </svg>
-            </button>
-            {legendOpen && (
-              <div className="px-3 py-2 max-h-[46vh] overflow-y-auto flex flex-col gap-2">
-                {showGoogleLabels && (
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-sm flex-shrink-0 bg-gray-700 flex items-center justify-center text-white text-[7px] font-bold">A</span>
-                    <span className="text-[10px] text-gray-600">Label Jalan & POI</span>
-                  </div>
+        <div className="absolute right-3 z-[1000] w-[230px]" style={{ top: '56px' }}>
+          <div className="bg-white border border-gray-200 rounded-xl shadow-md overflow-hidden select-none">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+              <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wide">Legenda</span>
+              <div className="flex items-center gap-1">
+                {layers.length > 1 && (
+                  <button onClick={zoomToAll} title="Zoom ke semua"
+                    className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-all">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                    </svg>
+                  </button>
                 )}
-                {layers.map(l => {
-                  const kat = l.info.jenis_bencana?.kategori || 'bencana'
-                  const KAT_COLOR: Record<string,string> = { hasil:'text-amber-700', administrasi:'text-emerald-700', fasilitas:'text-blue-700', faktor:'text-purple-700', bencana:'text-red-700' }
-                  if (!l.visible) return null
-                  return (
-                    <div key={l.info.id}>
-                      <p className={`text-[10px] font-bold mb-0.5 truncate ${KAT_COLOR[kat] || 'text-gray-700'}`}>{l.info.nama}</p>
-                      {l.subLayers.length > 0 ? (
-                        <div className="flex flex-col gap-0.5 pl-0.5">
-                          {sortSubLayers(l.subLayers.filter(sl => sl.visible)).map((sl, si) => (
-                            <div key={si} className="flex items-center gap-1.5">
-                              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 border border-black/10" style={{ background: sl.warna }} />
-                              <span className="text-[9px] text-gray-600 capitalize truncate">{sl.tingkat}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 pl-0.5">
-                          {kat === 'administrasi'
-                            ? <span className="w-2.5 h-2.5 flex-shrink-0 rounded-sm bg-white" style={{ border: `2px solid ${l.style.strokeColor || '#000000'}` }} />
-                            : <span className={`w-2.5 h-2.5 flex-shrink-0 border border-black/10 ${kat === 'fasilitas' ? 'rounded-full' : 'rounded-sm'}`} style={{ background: (kat==='fasilitas' ? (l.style.strokeColor || l.info.warna) : l.info.warna) || '#3388ff' }} />}
-                          <span className="text-[9px] text-gray-600 truncate">{l.info.nama}</span>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+                <button onClick={() => setLegendOpen(!legendOpen)}
+                  className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-300 transition-all">
+                  <svg className={`w-3 h-3 transition-transform ${legendOpen ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                  </svg>
+                </button>
               </div>
-            )}
+            </div>
+
+            {legendOpen && (() => {
+              // Urutan legenda = urutan layers (sudah auto-sorted: hasil → adm → fasilitas → faktor → bencana)
+              const sorted = layers
+
+              const URUTAN_KELAS = ['sangat aman','aman','tidak rawan','agak rawan','rendah','sangat rendah','sedang','tinggi','rawan','sangat rawan','sangat tinggi']
+              const KAT_COLOR: Record<string,string> = { hasil:'text-amber-700', administrasi:'text-green-700', fasilitas:'text-blue-700', faktor:'text-purple-700', bencana:'text-red-700' }
+
+              return (
+                <div className="flex flex-col max-h-[70vh] overflow-y-auto">
+                  {/* Baris Label Google — selalu paling atas */}
+                  {showGoogleLabels && (
+                    <div className="border-b border-gray-50">
+                      <div className="flex items-center gap-1 px-2 py-1.5">
+                        <div className={`flex-1 min-w-0 ${!googleLabelsVisible ? 'opacity-40' : ''}`}>
+                          <p className="text-[10px] font-bold truncate text-gray-700">Label Jalan & POI</p>
+                        </div>
+                        <div className="flex items-center gap-0.5 flex-shrink-0">
+                          {/* Eye */}
+                          <button title={googleLabelsVisible ? 'Sembunyikan' : 'Tampilkan'}
+                            onClick={() => setGoogleLabelsVisible(!googleLabelsVisible)}
+                            className={`w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 transition-all ${googleLabelsVisible ? 'text-gray-400 hover:text-gray-600' : 'text-gray-200 hover:text-gray-400'}`}>
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              {googleLabelsVisible
+                                ? <><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></>
+                                : <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                              }
+                            </svg>
+                          </button>
+                          {/* Hapus */}
+                          <button title="Hapus layer label" onClick={() => setShowGoogleLabels(false)}
+                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {sorted.map((l, sortedIndex) => {
+                    const realIndex = layers.indexOf(l)
+                    const kat = l.info.jenis_bencana?.kategori || 'bencana'
+                    const isExpanded = expandedGroups[`legend_${l.info.id}`] !== false
+                    const opacity = l.style.fillOpacity ?? 1
+                    const showOpacity = !!expandedGroups[`opacity_${l.info.id}`]
+                    const isFasilitas = kat === 'fasilitas'
+                    const isHasil = kat === 'hasil'
+                    const swipeActive2 = swipeActive && swipeLayerA === l.info.id
+
+                    // Sort kelas
+                    const sortedSubs = [...l.subLayers].sort((a, b) => {
+                      const ia = URUTAN_KELAS.findIndex(u => a.tingkat.toLowerCase().includes(u))
+                      const ib = URUTAN_KELAS.findIndex(u => b.tingkat.toLowerCase().includes(u))
+                      if (ia !== -1 && ib !== -1) return ia - ib
+                      const na = parseFloat(a.tingkat), nb = parseFloat(b.tingkat)
+                      if (!isNaN(na) && !isNaN(nb)) return na - nb
+                      return 0
+                    })
+
+                    // Toggle visibility — handle fasilitas (markers) vs polygon
+                    const toggleVis = () => {
+                      const newVis = !l.visible
+                      const updated = [...layers]; updated[realIndex] = { ...l, visible: newVis }
+                      const applyVis = (layer: L.Layer, show: boolean) => {
+                        const ly = layer as any
+                        if (ly.setStyle) {
+                          ly.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? opacity : 0 })
+                        }
+                        if (ly._icon) ly._icon.style.opacity = show ? '1' : '0'
+                        if (ly.eachLayer) {
+                          ly.eachLayer((child: L.Layer) => {
+                            const c = child as any
+                            if (c._icon) c._icon.style.opacity = show ? '1' : '0'
+                            if (c.setStyle) c.setStyle({ opacity: show ? 1 : 0, fillOpacity: show ? opacity : 0 })
+                          })
+                        }
+                      }
+                      if (l.layer) applyVis(l.layer, newVis)
+                      l.subLayers.forEach(sl => applyVis(sl.layer, newVis))
+                      setLayers(updated)
+                    }
+
+                    // Toggle label — for all layer types
+                    const toggleLabelFn = () => {
+                      const newShow = !l.style.showLabels
+                      const updated = [...layers]; updated[realIndex] = { ...l, style: { ...l.style, showLabels: newShow } }
+                      if (newShow && l.layer) {
+                        try { addLabels(l.info.id, l.layer as L.GeoJSON, (l.layer as any).toGeoJSON?.()) } catch(_) {}
+                      } else { removeLabels(l.info.id) }
+                      setLayers(updated)
+                    }
+
+                    // Swipe: this layer = kiri (A), layer below = kanan (B)
+                    const handleSwipeLegend = () => {
+                      if (swipeActive) { deactivateSwipe(); if (swipeLayerA === l.info.id) return }
+                      const layerBelow = sortedIndex < sorted.length - 1 ? sorted[sortedIndex + 1] : null
+                      if (!layerBelow) return
+                      activateSwipe(l.info.id, layerBelow.info.id)
+                    }
+
+                    const hasBelowLayer = sorted.findIndex((_, i) => i > sortedIndex) !== -1
+
+                    // Hapus layer — layer hasil analisis punya jalur sendiri
+                    const handleHapusLayer = () => {
+                      if (isHasil) clearHasilLayer()
+                      else toggleAvailableLayer(l.info)
+                    }
+
+                    return (
+                      <div key={l.info.id}
+                        className={`border-b border-gray-50 last:border-0 ${swipeActive2 ? 'bg-blue-950/5' : ''} ${isHasil ? 'bg-amber-50/40' : ''}`}>
+
+                        {/* Header row */}
+                        <div className="flex items-center gap-1 px-2 py-1.5">
+                          {/* Nama — expand toggle */}
+                          <button onClick={() => setExpandedGroups(p => ({ ...p, [`legend_${l.info.id}`]: !isExpanded }))}
+                            className={`flex-1 text-left min-w-0 ${!l.visible ? 'opacity-40' : ''}`}>
+                            <p className={`text-[10px] font-bold truncate ${KAT_COLOR[kat] || 'text-gray-700'}`}>{l.info.nama}</p>
+                          </button>
+
+                          {/* Kontrol */}
+                          <div className="flex items-center gap-0.5 flex-shrink-0"
+                            onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+
+                            {/* Zoom */}
+                            <button title="Zoom ke layer" onClick={() => {
+                              try {
+                                const map = mapRef.current; if (!map) return
+                                if (l.subLayers[0]) map.fitBounds((l.subLayers[0].layer as any).getBounds(), { padding: [40,40] })
+                                else if (l.layer) map.fitBounds((l.layer as any).getBounds(), { padding: [40,40] })
+                              } catch(_) {}
+                            }} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-all">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                              </svg>
+                            </button>
+
+                            {/* Show/hide */}
+                            <button title={l.visible ? 'Sembunyikan' : 'Tampilkan'} onClick={toggleVis}
+                              className={`w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 transition-all ${l.visible ? 'text-gray-400 hover:text-gray-600' : 'text-gray-200 hover:text-gray-400'}`}>
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                {l.visible
+                                  ? <><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></>
+                                  : <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                                }
+                              </svg>
+                            </button>
+
+                            {/* Label */}
+                            <button title={l.style.showLabels ? 'Sembunyikan label' : 'Tampilkan label'} onClick={toggleLabelFn}
+                              className={`w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 transition-all ${l.style.showLabels ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600'}`}>
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
+                              </svg>
+                            </button>
+
+                            {/* Opacity */}
+                            <button title="Opacity" onClick={() => setExpandedGroups(p => ({ ...p, [`opacity_${l.info.id}`]: !showOpacity }))}
+                              className={`w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 transition-all ${showOpacity ? 'bg-gray-100 text-gray-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                              </svg>
+                            </button>
+
+                            {/* Swipe — hanya tampil kalau ada layer di bawahnya */}
+                            {hasBelowLayer && (
+                              <button title={swipeActive2 ? 'Matikan swipe' : 'Swipe dengan layer di bawah'} onClick={handleSwipeLegend}
+                                className={`w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 transition-all ${swipeActive2 ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600'}`}>
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                                </svg>
+                              </button>
+                            )}
+
+                            {/* Hapus */}
+                            <button title={isHasil ? 'Hapus hasil analisis' : 'Hapus layer'} onClick={handleHapusLayer}
+                              className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Opacity slider — isolated dari drag */}
+                        {showOpacity && (
+                          <div className="px-3 pb-2 flex items-center gap-2"
+                            draggable={false}
+                            onPointerDown={e => e.stopPropagation()}
+                            onMouseDown={e => e.stopPropagation()}
+                            onDragStart={e => e.preventDefault()}>
+                            <span className="text-[9px] text-gray-400 w-6">Ops</span>
+                            <input type="range" min={0} max={100} step={5}
+                              value={Math.round(opacity * 100)}
+                              onPointerDown={e => e.stopPropagation()}
+                              onMouseDown={e => e.stopPropagation()}
+                              onChange={e => {
+                                e.stopPropagation()
+                                const op = Number(e.target.value) / 100
+                                const updated = [...layers]; updated[realIndex] = { ...l, style: { ...l.style, fillOpacity: op } }
+                                const applyOp = (layer: L.Layer) => {
+                                  const ly = layer as any
+                                  if (ly.setStyle) ly.setStyle({ fillOpacity: op })
+                                  if (ly.setOpacity) ly.setOpacity(op)
+                                  if (ly.eachLayer) ly.eachLayer((c: L.Layer) => {
+                                    const ch = c as any
+                                    if (ch.setStyle) ch.setStyle({ fillOpacity: op })
+                                    if (ch.setOpacity) ch.setOpacity(op)
+                                  })
+                                }
+                                if (l.layer) applyOp(l.layer)
+                                l.subLayers.forEach(sl => applyOp(sl.layer))
+                                setLayers(updated)
+                              }}
+                              className="flex-1 accent-blue-700 h-1.5 cursor-pointer" />
+                            <span className="text-[9px] text-gray-400 w-6 text-right">{Math.round(opacity * 100)}%</span>
+                          </div>
+                        )}
+
+                        {/* Kelas legenda */}
+                        {isExpanded && (
+                          <div className="px-3 pb-2 flex flex-col gap-1">
+                            {sortedSubs.length > 0
+                              ? sortedSubs.map((sl, si) => (
+                                <div key={si} className={`flex items-center gap-2 group ${!sl.visible ? 'opacity-40' : ''}`}>
+                                  <label title="Klik ganti warna" className="cursor-pointer flex-shrink-0">
+                                    <div className="w-3 h-3 rounded-sm border border-black/10 hover:ring-1 hover:ring-blue-400 transition-all" style={{ background: sl.warna }} />
+                                    <input type="color" value={sl.warna} className="sr-only"
+                                      onChange={e => {
+                                        const w = e.target.value
+                                        const updated = [...layers]
+                                        updated[realIndex] = { ...l, subLayers: l.subLayers.map(s => s.tingkat === sl.tingkat ? { ...s, warna: w } : s) }
+                                        ;(sl.layer as any).setStyle?.({ fillColor: w })
+                                        // Recolor juga marker divIcon (untuk hasil analisis fasilitas / layer titik)
+                                        ;(sl.layer as any).eachLayer?.((c: any) => {
+                                          if (c._icon) {
+                                            c._icon.querySelectorAll('div').forEach((d: any) => {
+                                              if (d.style.background) d.style.background = w
+                                            })
+                                            c._icon.querySelectorAll('polygon, path, circle, rect').forEach((p: any) => p.setAttribute('fill', w))
+                                          }
+                                        })
+                                        setLayers(updated)
+                                      }} />
+                                  </label>
+                                  <span className="text-[10px] text-gray-600 leading-tight flex-1">{sl.tingkat}</span>
+                                  {/* Eye per kelas */}
+                                  <button title={sl.visible ? 'Sembunyikan kelas' : 'Tampilkan kelas'}
+                                    onClick={() => {
+                                      const newVis = !sl.visible
+                                      const updated = [...layers]
+                                      updated[realIndex] = {
+                                        ...l, subLayers: l.subLayers.map(s => s.tingkat === sl.tingkat ? { ...s, visible: newVis } : s)
+                                      }
+                                      const ly = sl.layer as any
+                                      if (ly.setStyle) ly.setStyle({ opacity: newVis ? 1 : 0, fillOpacity: newVis ? (l.style.fillOpacity ?? 1) : 0 })
+                                      if (ly.eachLayer) ly.eachLayer((c: any) => {
+                                        if (c.setStyle) c.setStyle({ opacity: newVis ? 1 : 0, fillOpacity: newVis ? (l.style.fillOpacity ?? 1) : 0 })
+                                        if (c._icon) c._icon.style.display = newVis ? '' : 'none'
+                                      })
+                                      setLayers(updated)
+                                    }}
+                                    className="w-4 h-4 flex items-center justify-center rounded text-gray-300 hover:text-gray-600 transition-all flex-shrink-0">
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      {sl.visible
+                                        ? <><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></>
+                                        : <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                                      }
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))
+                              : isFasilitas
+                                ? (
+                                  <div className="flex items-center gap-2">
+                                    <label title="Klik ganti warna" className="cursor-pointer flex-shrink-0">
+                                      <div className="w-3 h-3 rounded-full border border-black/10 hover:ring-1 hover:ring-blue-400 transition-all" style={{ background: l.info.warna || '#3388ff' }} />
+                                      <input type="color" value={l.info.warna || '#3388ff'} className="sr-only"
+                                        onChange={e => {
+                                          const w = e.target.value
+                                          // Mutate info.warna agar zoomend handler pakai warna baru
+                                          l.info.warna = w
+                                          const applyMarkerColor = (icon: HTMLElement) => {
+                                            icon.querySelectorAll('div').forEach((d: any) => {
+                                              if (d.style.background) d.style.background = w
+                                              if (d.style.borderBottomColor) d.style.borderBottomColor = w
+                                              if (d.style.borderBottom && d.style.borderBottom.includes('solid')) {
+                                                const parts = d.style.borderBottom.split('solid')
+                                                d.style.borderBottom = parts[0] + 'solid ' + w
+                                              }
+                                            })
+                                            icon.querySelectorAll('polygon, path, circle, rect').forEach((p: any) => p.setAttribute('fill', w))
+                                          }
+                                          const applyColor = (layer: L.Layer) => {
+                                            const ly = layer as any
+                                            if (ly.setStyle) try { ly.setStyle({ color: w, fillColor: w }) } catch(_) {}
+                                            if (ly._icon) applyMarkerColor(ly._icon)
+                                            if (ly.eachLayer) ly.eachLayer((c: any) => {
+                                              if (c.setStyle) try { c.setStyle({ color: w, fillColor: w }) } catch(_) {}
+                                              if (c._icon) applyMarkerColor(c._icon)
+                                            })
+                                          }
+                                          if (l.layer) applyColor(l.layer)
+                                          l.subLayers.forEach(sl => applyColor(sl.layer))
+                                          setLayers(prev => [...prev])
+                                        }} />
+                                    </label>
+                                    <span className="text-[10px] text-gray-600">{l.info.nama}</span>
+                                  </div>
+                                )
+                                : kat === 'administrasi' ? (
+                                  <div className="flex flex-col gap-2">
+                                    {(() => {
+                                      const st = adminStrokeStyle[l.info.id] || { fill: '#cccccc', noFill: true, stroke: '#000000', noStroke: false, weight: 1, dash: '8,6' }
+                                      return (
+                                        <div className="bg-gray-50 rounded-lg p-2 flex flex-col gap-2">
+                                          {/* Fill */}
+                                          <div className="flex items-center gap-2">
+                                            <label className="cursor-pointer flex-shrink-0" title="Warna fill">
+                                              <div className="w-4 h-4 rounded border border-black/15" style={{ background: st.noFill ? 'repeating-conic-gradient(#e5e7eb 0 25%, white 0 50%) 0 0/8px 8px' : st.fill }} />
+                                              <input type="color" value={st.fill} className="sr-only"
+                                                onChange={e => applyAdminStyle(l, { ...st, fill: e.target.value, noFill: false })} />
+                                            </label>
+                                            <span className="text-[9px] text-gray-500 flex-1">Fill</span>
+                                            <label className="flex items-center gap-1 cursor-pointer">
+                                              <input type="checkbox" checked={st.noFill} onChange={e => applyAdminStyle(l, { ...st, noFill: e.target.checked })} className="w-3 h-3 accent-blue-700" />
+                                              <span className="text-[9px] text-gray-500">Tanpa fill</span>
+                                            </label>
+                                          </div>
+                                          {/* Stroke */}
+                                          <div className="flex items-center gap-2">
+                                            <label className="cursor-pointer flex-shrink-0" title="Warna garis">
+                                              <div className="w-4 h-4 rounded border border-black/15" style={{ background: st.noStroke ? 'repeating-conic-gradient(#e5e7eb 0 25%, white 0 50%) 0 0/8px 8px' : st.stroke }} />
+                                              <input type="color" value={st.stroke} className="sr-only"
+                                                onChange={e => applyAdminStyle(l, { ...st, stroke: e.target.value, noStroke: false })} />
+                                            </label>
+                                            <span className="text-[9px] text-gray-500 flex-1">Garis</span>
+                                            <label className="flex items-center gap-1 cursor-pointer">
+                                              <input type="checkbox" checked={st.noStroke} onChange={e => applyAdminStyle(l, { ...st, noStroke: e.target.checked })} className="w-3 h-3 accent-blue-700" />
+                                              <span className="text-[9px] text-gray-500">Tanpa garis</span>
+                                            </label>
+                                          </div>
+                                          {/* Tebal + jenis */}
+                                          <div className="flex items-center gap-2">
+                                            <input type="range" min={0.5} max={5} step={0.5} value={st.weight}
+                                              onChange={e => applyAdminStyle(l, { ...st, weight: Number(e.target.value) })}
+                                              onMouseDown={e => e.stopPropagation()}
+                                              className="flex-1 accent-blue-700 h-1" title="Tebal garis" />
+                                            <span className="text-[9px] text-gray-400 w-5">{st.weight}</span>
+                                            <select value={st.dash}
+                                              onChange={e => applyAdminStyle(l, { ...st, dash: e.target.value })}
+                                              className="text-[9px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+                                              <option value="">Solid</option>
+                                              <option value="8,6">Dash</option>
+                                              <option value="2,4">Dot</option>
+                                              <option value="12,4,2,4">Dash-Dot</option>
+                                            </select>
+                                          </div>
+                                        </div>
+                                      )
+                                    })()}
+                                    {/* Daftar wilayah dengan checkbox */}
+                                    {(() => {
+                                      const names = getWilayahNames(l)
+                                      if (!names.length) return null
+                                      const hidden = hiddenWilayah[l.info.id] || []
+                                      return (
+                                        <div className="flex flex-col gap-0.5 max-h-44 overflow-y-auto border border-gray-100 rounded-lg p-1.5">
+                                          <div className="flex items-center justify-between px-1 pb-1">
+                                            <span className="text-[9px] font-bold text-gray-400 uppercase">Wilayah ({names.length})</span>
+                                            <button onClick={() => {
+                                              const allHidden = hidden.length >= names.length
+                                              const target = allHidden ? [] : [...names]
+                                              setHiddenWilayah(prev => ({ ...prev, [l.info.id]: target }))
+                                              const gjl = l.layer as any
+                                              if (gjl?.eachLayer) gjl.eachLayer((child: any) => {
+                                                const el = child._path
+                                                if (el) el.style.display = allHidden ? '' : 'none'
+                                              })
+                                            }} className="text-[9px] text-blue-600 hover:underline">
+                                              {hidden.length >= names.length ? 'Tampilkan semua' : 'Sembunyikan semua'}
+                                            </button>
+                                          </div>
+                                          {names.map(nama => (
+                                            <label key={nama} className="flex items-center gap-1.5 px-1 py-0.5 rounded hover:bg-gray-50 cursor-pointer">
+                                              <input type="checkbox" checked={!hidden.includes(nama)}
+                                                onChange={() => toggleWilayahVisibility(l, nama)}
+                                                className="w-3 h-3 accent-blue-700 flex-shrink-0" />
+                                              <span className="text-[10px] text-gray-600 truncate">{nama}</span>
+                                            </label>
+                                          ))}
+                                        </div>
+                                      )
+                                    })()}
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <label title="Klik ganti warna" className="cursor-pointer flex-shrink-0">
+                                      <div className="w-3 h-3 rounded-sm border border-black/10 hover:ring-1 hover:ring-blue-400 transition-all" style={{ background: l.info.warna || '#3388ff' }} />
+                                      <input type="color" value={l.info.warna || '#3388ff'} className="sr-only"
+                                        onChange={e => {
+                                          const w = e.target.value
+                                          if (l.layer) (l.layer as any).setStyle?.({ fillColor: w, color: w })
+                                        }} />
+                                    </label>
+                                    <span className="text-[10px] text-gray-600">{l.info.nama}</span>
+                                  </div>
+                                )
+                            }
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  {intersectLayer && (
+                    <div className="border-t border-gray-100 px-3 py-2">
+                      <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Hasil Overlay</p>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-sm flex-shrink-0 border-2 border-red-500" style={{ background: '#FEFB00' }} />
+                        <span className="text-[11px] text-gray-600">Area terdampak</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}

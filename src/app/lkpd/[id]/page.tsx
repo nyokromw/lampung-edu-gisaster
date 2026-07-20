@@ -191,9 +191,26 @@ function TtsPlayer({ a, value, onChange, revealed, locked }: {
   const kata = a.tts_kata || []
   const view = useMemo(() => buildTtsView(kata), [kata])
   const wrapRef = useRef<HTMLDivElement>(null)
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [cellSize, setCellSize] = useState(32)
+  const [arahAktif, setArahAktif] = useState<'mendatar' | 'menurun'>('mendatar')
   const mendatar = kata.filter(k => k.arah === 'mendatar').sort((x, y) => x.nomor - y.nomor)
   const menurun = kata.filter(k => k.arah === 'menurun').sort((x, y) => x.nomor - y.nomor)
+
+  // Peta arah yang tersedia di tiap sel (untuk memutuskan arah lompat)
+  const arahDiSel = useMemo(() => {
+    const m = new Map<string, Set<'mendatar' | 'menurun'>>()
+    for (const k of kata) {
+      for (let i = 0; i < k.jawaban.length; i++) {
+        const r = k.arah === 'menurun' ? k.row + i : k.row
+        const c = k.arah === 'mendatar' ? k.col + i : k.col
+        const key = `${r},${c}`
+        if (!m.has(key)) m.set(key, new Set())
+        m.get(key)!.add(k.arah)
+      }
+    }
+    return m
+  }, [kata])
 
   // Ukur lebar container -> sel menyesuaikan agar seluruh grid muat tanpa scroll
   useEffect(() => {
@@ -212,6 +229,55 @@ function TtsPlayer({ a, value, onChange, revealed, locked }: {
   const CELL = cellSize
   const fontPx = Math.max(9, Math.round(CELL * 0.45))
   const numPx = Math.max(6, Math.round(CELL * 0.24))
+
+  // Cari sel isian berikutnya searah tertentu (loncati sel kosong/petunjuk)
+  const fokusSel = (r: number, c: number) => {
+    const el = inputRefs.current[`${r},${c}`]
+    if (el) { el.focus(); el.select?.() }
+  }
+  const langkah = (r: number, c: number, arah: 'mendatar' | 'menurun', maju: boolean): [number, number] | null => {
+    const dr = arah === 'menurun' ? (maju ? 1 : -1) : 0
+    const dc = arah === 'mendatar' ? (maju ? 1 : -1) : 0
+    let nr = r + dr, nc = c + dc
+    // lompati sel yang bukan bagian kata (tidak ada di cells)
+    while (nr >= 0 && nc >= 0 && nr < view.rows && nc < view.cols) {
+      if (view.cells.has(`${nr},${nc}`)) return [nr, nc]
+      nr += dr; nc += dc
+    }
+    return null
+  }
+  // Sel isian berikut yang bisa difokus (bukan petunjuk) searah maju
+  const majuKeSelIsian = (r: number, c: number, arah: 'mendatar' | 'menurun') => {
+    let cur: [number, number] | null = [r, c]
+    for (let guard = 0; guard < 100; guard++) {
+      cur = langkah(cur[0], cur[1], arah, true)
+      if (!cur) return
+      if (!view.hint.has(`${cur[0]},${cur[1]}`)) { fokusSel(cur[0], cur[1]); return }
+    }
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent, r: number, c: number) => {
+    if (locked) return
+    const key = `${r},${c}`
+    const arahSel = arahDiSel.get(key) || new Set()
+    // arah efektif: pakai arahAktif bila sel mendukungnya, kalau tidak pakai yang tersedia
+    const arah: 'mendatar' | 'menurun' = arahSel.has(arahAktif) ? arahAktif : (arahSel.has('mendatar') ? 'mendatar' : 'menurun')
+
+    if (e.key === 'ArrowRight') { e.preventDefault(); setArahAktif('mendatar'); const n = langkah(r, c, 'mendatar', true); if (n) fokusSel(n[0], n[1]) }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); setArahAktif('mendatar'); const n = langkah(r, c, 'mendatar', false); if (n) fokusSel(n[0], n[1]) }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setArahAktif('menurun'); const n = langkah(r, c, 'menurun', true); if (n) fokusSel(n[0], n[1]) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setArahAktif('menurun'); const n = langkah(r, c, 'menurun', false); if (n) fokusSel(n[0], n[1]) }
+    else if (e.key === 'Backspace') {
+      if ((value?.[key] || '') === '') {
+        // sudah kosong -> mundur & hapus sel sebelumnya
+        e.preventDefault()
+        const n = langkah(r, c, arah, false)
+        if (n && !view.hint.has(`${n[0]},${n[1]}`)) { onChange({ ...value, [`${n[0]},${n[1]}`]: '' }); fokusSel(n[0], n[1]) }
+        else if (n) fokusSel(n[0], n[1])
+      }
+      // kalau sel ada isinya, biarkan default (menghapus isi sel ini) lalu tetap di sel
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5" ref={wrapRef}>
@@ -246,8 +312,23 @@ function TtsPlayer({ a, value, onChange, revealed, locked }: {
                     {cell.nums.length > 0 && (
                       <span className="absolute top-0 left-0.5 font-bold text-gray-500 z-10 pointer-events-none" style={{ fontSize: numPx }}>{cell.nums.join('/')}</span>
                     )}
-                    <input maxLength={1} value={val} disabled={locked}
-                      onChange={e => onChange({ ...value, [key]: e.target.value.toUpperCase().slice(-1) })}
+                    <input maxLength={1} value={val} disabled={locked} inputMode="text"
+                      ref={el => { inputRefs.current[key] = el }}
+                      onFocus={() => {
+                        // set arah aktif sesuai arah yang tersedia di sel ini
+                        const s = arahDiSel.get(key)
+                        if (s && !s.has(arahAktif)) setArahAktif(s.has('mendatar') ? 'mendatar' : 'menurun')
+                      }}
+                      onChange={e => {
+                        const huruf = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(-1)
+                        onChange({ ...value, [key]: huruf })
+                        if (huruf) {
+                          const s = arahDiSel.get(key) || new Set()
+                          const arah: 'mendatar' | 'menurun' = s.has(arahAktif) ? arahAktif : (s.has('mendatar') ? 'mendatar' : 'menurun')
+                          majuKeSelIsian(r, c, arah)   // auto-advance ke kotak berikutnya
+                        }
+                      }}
+                      onKeyDown={e => onKeyDown(e, r, c)}
                       style={{ fontSize: fontPx }}
                       className={`w-full h-full text-center font-bold uppercase border outline-none transition-all disabled:cursor-not-allowed
                         ${revealed && benar ? 'bg-green-100 border-green-400 text-green-700'
@@ -260,8 +341,9 @@ function TtsPlayer({ a, value, onChange, revealed, locked }: {
           ))}
         </div>
       </div>
-      <p className="text-[10px] text-slate-400 -mt-3 flex items-center gap-1 justify-center">
+      <p className="text-[10px] text-slate-400 -mt-3 flex items-center gap-1 justify-center flex-wrap">
         <span className="inline-block w-3 h-3 bg-slate-200 border border-slate-300 rounded-sm" /> Huruf abu-abu = petunjuk awal (bukan poin)
+        <span className="mx-1">·</span> Kursor otomatis pindah setelah mengetik. Gunakan tombol panah untuk berpindah kotak.
       </p>
 
       {/* Petunjuk — full width, 2 kolom di layar lebar */}
@@ -565,7 +647,7 @@ function KategorisasiPlayer({ a, value, onChange, revealed, locked }: {
         {/* Garis */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible', zIndex: 1 }}>
           {lines.map((l, i) => {
-            const benar = items[l.idx]?.kategori === l.kat
+            const benar = samaKategori(items[l.idx]?.kategori, l.kat)
             const stroke = revealed ? (benar ? '#16a34a' : '#dc2626') : katWarna(l.kat)
             const midX = (l.x1 + l.x2) / 2
             return (
@@ -616,8 +698,8 @@ function KategorisasiPlayer({ a, value, onChange, revealed, locked }: {
               const it = items[idx]
               const kat = (value || {})[idx]
               const terhubung = kat !== undefined
-              const benar = revealed && terhubung && it.kategori === kat
-              const salah = revealed && terhubung && it.kategori !== kat
+              const benar = revealed && terhubung && samaKategori(it.kategori, kat)
+              const salah = revealed && terhubung && !samaKategori(it.kategori, kat)
               const warna = terhubung ? katWarna(kat) : undefined
               const bisaTerima = selKat !== null
               return (
@@ -646,10 +728,17 @@ function KategorisasiPlayer({ a, value, onChange, revealed, locked }: {
   )
 }
 
+// Normalisasi perbandingan kategori: tahan terhadap beda spasi/kapital/spasi-ganda
+// (mis. "Sebelum Banjir " vs "Sebelum Banjir") agar penilaian tidak keliru.
+function samaKategori(a?: string, b?: string): boolean {
+  const norm = (s?: string) => (s || '').replace(/\u00a0/g, ' ').trim().replace(/\s+/g, ' ').toLowerCase()
+  return norm(a) === norm(b)
+}
+
 function scoreKategorisasi(a: Aktivitas, value: Record<number, string> = {}) {
   const items = a.kat_items || []
   let benar = 0
-  items.forEach((it, i) => { if ((value[i] || '') === it.kategori) benar++ })
+  items.forEach((it, i) => { if (value[i] && samaKategori(value[i], it.kategori)) benar++ })
   return { benar, total: items.length }
 }
 
@@ -664,7 +753,7 @@ function drawContain(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: nu
 }
 
 const PAINT_COLORS = ['#1e293b', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#2563eb', '#7c3aed', '#ffffff']
-type PaintTool = 'pena' | 'garis' | 'kotak' | 'lingkaran' | 'teks'
+type PaintTool = 'pena' | 'nomor' | 'penghapus' | 'teks'
 
 function PaintCanvas({ a, value, onChange, locked }: {
   a: Aktivitas; value: string; onChange: (v: string) => void; locked: boolean
@@ -675,9 +764,10 @@ function PaintCanvas({ a, value, onChange, locked }: {
   const [size, setSize] = useState(3)
   const [tool, setTool] = useState<PaintTool>('pena')
   const last = useRef<{ x: number; y: number } | null>(null)
-  const startPt = useRef<{ x: number; y: number } | null>(null)
-  const baseSnapshot = useRef<ImageData | null>(null)   // kondisi kanvas sebelum shape sedang digambar
   const history = useRef<string[]>([])                  // riwayat untuk undo (dataURL)
+  const [nomorTerpilih, setNomorTerpilih] = useState(1)   // ikon nomor yang dipilih siswa (1..9)
+  // Input teks menempel di kanvas (bukan prompt browser)
+  const [teksInput, setTeksInput] = useState<{ x: number; y: number; nilai: string } | null>(null)
 
   // Gambar latar (background referensi atau jawaban tersimpan)
   const paintBase = () => {
@@ -705,54 +795,78 @@ function PaintCanvas({ a, value, onChange, locked }: {
   }
   const commit = () => onChange(canvasRef.current!.toDataURL('image/png'))
 
+  // Stempel ikon nomor bulat
+  const stampNomor = (x: number, y: number, n: number) => {
+    const ctx = canvasRef.current!.getContext('2d')!
+    const r = Math.max(12, size * 3.2)
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fillStyle = color; ctx.fill()
+    ctx.lineWidth = 2; ctx.strokeStyle = '#ffffff'; ctx.stroke()
+    ctx.fillStyle = '#ffffff'
+    ctx.font = `bold ${Math.round(r * 1.15)}px system-ui, sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(String(n), x, y + 1)
+    ctx.textAlign = 'start'
+  }
+
+  // Tulis teks ke kanvas dari kotak input
+  const commitTeks = () => {
+    if (!teksInput) return
+    const t = teksInput.nilai.trim()
+    if (t) {
+      pushHistory()
+      const ctx = canvasRef.current!.getContext('2d')!
+      ctx.fillStyle = color
+      ctx.font = `bold ${Math.max(14, size * 5)}px system-ui, sans-serif`
+      ctx.textBaseline = 'top'; ctx.textAlign = 'start'
+      ctx.fillText(t, teksInput.x, teksInput.y)
+      commit()
+    }
+    setTeksInput(null)
+  }
+
   const start = (e: React.PointerEvent) => {
     if (locked) return
     const p = pos(e)
     const ctx = canvasRef.current!.getContext('2d')!
+
     if (tool === 'teks') {
-      const teks = window.prompt('Tulis teks:')
-      if (teks) {
-        pushHistory()
-        ctx.fillStyle = color
-        ctx.font = `bold ${Math.max(12, size * 5)}px system-ui, sans-serif`
-        ctx.textBaseline = 'top'
-        ctx.fillText(teks, p.x, p.y)
-        commit()
-      }
+      // Kalau ada kotak input terbuka, tulis dulu yang lama
+      if (teksInput) commitTeks()
+      setTeksInput({ x: p.x, y: p.y, nilai: '' })
       return
     }
+    if (tool === 'nomor') {
+      pushHistory()
+      stampNomor(p.x, p.y, nomorTerpilih)
+      commit()
+      return
+    }
+
+    // pena / penghapus → coretan bebas
     pushHistory()
     drawing.current = true
-    last.current = p; startPt.current = p
-    if (tool !== 'pena') baseSnapshot.current = ctx.getImageData(0, 0, canvasRef.current!.width, canvasRef.current!.height)
+    last.current = p
   }
 
   const move = (e: React.PointerEvent) => {
     if (!drawing.current || locked) return
     const ctx = canvasRef.current!.getContext('2d')!
     const p = pos(e)
-    ctx.strokeStyle = color; ctx.lineWidth = size; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-    if (tool === 'pena') {
-      ctx.beginPath(); ctx.moveTo(last.current!.x, last.current!.y); ctx.lineTo(p.x, p.y); ctx.stroke()
-      last.current = p
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    if (tool === 'penghapus') {
+      // Karet: gambar dengan warna latar putih, lebih tebal
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(size * 4, 16)
     } else {
-      // shape: pulihkan snapshot lalu gambar preview
-      if (baseSnapshot.current) ctx.putImageData(baseSnapshot.current, 0, 0)
-      const s = startPt.current!
-      ctx.beginPath()
-      if (tool === 'garis') { ctx.moveTo(s.x, s.y); ctx.lineTo(p.x, p.y); ctx.stroke() }
-      else if (tool === 'kotak') { ctx.strokeRect(Math.min(s.x, p.x), Math.min(s.y, p.y), Math.abs(p.x - s.x), Math.abs(p.y - s.y)) }
-      else if (tool === 'lingkaran') {
-        const cx = (s.x + p.x) / 2, cy = (s.y + p.y) / 2
-        const rx = Math.abs(p.x - s.x) / 2, ry = Math.abs(p.y - s.y) / 2
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke()
-      }
+      ctx.strokeStyle = color; ctx.lineWidth = size
     }
+    ctx.beginPath(); ctx.moveTo(last.current!.x, last.current!.y); ctx.lineTo(p.x, p.y); ctx.stroke()
+    last.current = p
   }
 
   const end = () => {
     if (!drawing.current || locked) return
-    drawing.current = false; last.current = null; startPt.current = null; baseSnapshot.current = null
+    drawing.current = false; last.current = null
     commit()
   }
 
@@ -767,7 +881,7 @@ function PaintCanvas({ a, value, onChange, locked }: {
 
   const clear = () => {
     if (locked) return
-    history.current = []
+    history.current = []; setTeksInput(null)
     const canvas = canvasRef.current!; const ctx = canvas.getContext('2d')!
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
     if (a.paint_bg) { const img = new Image(); img.onload = () => drawContain(ctx, img, canvas.width, canvas.height); img.src = a.paint_bg }
@@ -776,9 +890,8 @@ function PaintCanvas({ a, value, onChange, locked }: {
 
   const TOOLS: { value: PaintTool; label: string; icon: string }[] = [
     { value: 'pena', label: 'Pena', icon: '✏️' },
-    { value: 'garis', label: 'Garis', icon: '╱' },
-    { value: 'kotak', label: 'Kotak', icon: '▭' },
-    { value: 'lingkaran', label: 'Lingkaran', icon: '◯' },
+    { value: 'nomor', label: 'Nomor', icon: '①' },
+    { value: 'penghapus', label: 'Penghapus', icon: '⌫' },
     { value: 'teks', label: 'Teks', icon: 'T' },
   ]
 
@@ -789,7 +902,7 @@ function PaintCanvas({ a, value, onChange, locked }: {
           {/* Alat */}
           <div className="flex items-center gap-1.5 flex-wrap">
             {TOOLS.map(t => (
-              <button key={t.value} type="button" onClick={() => setTool(t.value)}
+              <button key={t.value} type="button" onClick={() => { setTool(t.value); if (t.value !== 'teks') setTeksInput(null) }}
                 className={`flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-all ${tool === t.value ? 'bg-blue-950 border-blue-950 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-blue-300'}`}>
                 <span className="text-[13px] leading-none">{t.icon}</span> {t.label}
               </button>
@@ -799,13 +912,27 @@ function PaintCanvas({ a, value, onChange, locked }: {
               <button type="button" onClick={clear} className="text-[11px] text-red-500 border border-red-200 hover:bg-red-50 rounded-lg px-2.5 py-1.5 transition-all">Bersihkan</button>
             </div>
           </div>
+
+          {/* Pemilih nomor 1–9 (muncul saat tool Nomor aktif) */}
+          {tool === 'nomor' && (
+            <div className="flex items-center gap-1.5 flex-wrap bg-white rounded-lg border border-gray-200 px-2 py-1.5">
+              <span className="text-[10px] text-gray-500 mr-0.5">Pilih angka:</span>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
+                <button key={n} type="button" onClick={() => setNomorTerpilih(n)}
+                  className={`w-7 h-7 rounded-full text-[12px] font-bold flex items-center justify-center border-2 transition-all
+                    ${nomorTerpilih === n ? 'text-white border-white ring-2 ring-blue-400' : 'text-white border-white/70 opacity-70 hover:opacity-100'}`}
+                  style={{ background: color }}>{n}</button>
+              ))}
+              <span className="text-[10px] text-gray-400 ml-1">lalu klik di kanvas</span>
+            </div>
+          )}
           {/* Warna & tebal */}
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex gap-1">
-              {PAINT_COLORS.map(c => (
+              {PAINT_COLORS.filter(c => c !== '#ffffff').map(c => (
                 <button key={c} type="button" onClick={() => setColor(c)}
-                  className={`w-6 h-6 rounded-full border-2 transition-all ${color === c ? 'ring-2 ring-blue-400 ring-offset-1' : ''} ${c === '#ffffff' ? 'border-gray-300' : 'border-white'}`}
-                  style={{ background: c }} title={c === '#ffffff' ? 'Penghapus (putih)' : c} />
+                  className={`w-6 h-6 rounded-full border-2 transition-all ${color === c ? 'ring-2 ring-blue-400 ring-offset-1' : 'border-white'}`}
+                  style={{ background: c }} title={c} />
               ))}
             </div>
             <div className="flex items-center gap-1.5 ml-1">
@@ -816,12 +943,38 @@ function PaintCanvas({ a, value, onChange, locked }: {
           </div>
         </div>
       )}
-      <div className="border-2 border-gray-300 rounded-xl overflow-hidden bg-white" style={{ touchAction: 'none' }}>
+      <div className="relative border-2 border-gray-300 rounded-xl overflow-hidden bg-white" style={{ touchAction: 'none' }}>
         <canvas ref={canvasRef} width={760} height={420}
-          className={`w-full block ${locked ? 'cursor-default' : 'cursor-crosshair'}`}
+          className={`w-full block ${locked ? 'cursor-default' : tool === 'teks' ? 'cursor-text' : 'cursor-crosshair'}`}
           onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerLeave={end} />
+        {/* Kotak input teks menempel di kanvas */}
+        {teksInput && !locked && (() => {
+          const canvas = canvasRef.current
+          const rect = canvas?.getBoundingClientRect()
+          const scale = rect && canvas ? rect.width / canvas.width : 1
+          return (
+            <div className="absolute z-10 flex items-center gap-1 bg-white rounded-lg shadow-lg border border-blue-300 p-1"
+              style={{ left: teksInput.x * scale, top: teksInput.y * scale }}>
+              <input autoFocus value={teksInput.nilai}
+                onChange={e => setTeksInput({ ...teksInput, nilai: e.target.value })}
+                onKeyDown={e => { if (e.key === 'Enter') commitTeks(); if (e.key === 'Escape') setTeksInput(null) }}
+                placeholder="Ketik teks..."
+                className="text-sm px-2 py-1 outline-none w-32 border-0" />
+              <button type="button" onClick={commitTeks} className="text-[11px] font-semibold bg-blue-950 text-white px-2 py-1 rounded-md">Tambah</button>
+              <button type="button" onClick={() => setTeksInput(null)} className="text-gray-400 hover:text-gray-600 text-xs px-1">✕</button>
+            </div>
+          )
+        })()}
       </div>
-      {!locked && <p className="text-[10px] text-gray-400">Pilih alat lalu gambar di kanvas. Untuk garis/kotak/lingkaran: tekan–tarik–lepas. Hasil otomatis tersimpan & ikut tercetak di PDF.</p>}
+      {!locked && (
+        <p className="text-[10px] text-gray-400">
+          {tool === 'pena' && 'Gambar bebas di kanvas.'}
+          {tool === 'nomor' && 'Pilih angka (1–9) lalu klik di kanvas untuk menempelkannya. Bisa dipakai berulang.'}
+          {tool === 'penghapus' && 'Usap di kanvas untuk menghapus coretan.'}
+          {tool === 'teks' && 'Klik posisi di kanvas, lalu ketik teksnya.'}
+          {' '}Hasil otomatis tersimpan & ikut tercetak di PDF.
+        </p>
+      )}
     </div>
   )
 }
@@ -1016,6 +1169,11 @@ export default function LkpdDetailPage() {
   const [generating, setGenerating] = useState(false)
   const [activeAktivitas, setActiveAktivitas] = useState<number>(0)
   const [fullscreenMapId, setFullscreenMapId] = useState<number | null>(null)
+  const [petaTampil, setPetaTampil] = useState(true)          // toggle peta split-screen (laptop)
+  const [petaMobileBuka, setPetaMobileBuka] = useState(false) // overlay peta di HP
+  const [petaPernahDibuka, setPetaPernahDibuka] = useState(false)
+  const [faseView, setFaseView] = useState<'intro' | 'Memahami' | 'Mengaplikasi' | 'Merefleksi' | 'selesai'>('intro')
+  const [transisi, setTransisi] = useState(false)
   const chartRefs = useRef<Record<number, Chart>>({})
 
   const cacheKey = `lkpd-cache-${params.id}`
@@ -1031,15 +1189,16 @@ export default function LkpdDetailPage() {
         if (c.tabelData) setTabelData(c.tabelData)
         if (c.diagramData) setDiagramData(c.diagramData)
         if (c.faseSelesai) setFaseSelesai(c.faseSelesai)
+        if (c.faseView) setFaseView(c.faseView)
       }
     } catch (_) {}
   }, [cacheKey])
 
   useEffect(() => {
     try {
-      localStorage.setItem(cacheKey, JSON.stringify({ identitas, identitasSelesai, jawaban, tabelData, diagramData, faseSelesai }))
+      localStorage.setItem(cacheKey, JSON.stringify({ identitas, identitasSelesai, jawaban, tabelData, diagramData, faseSelesai, faseView }))
     } catch (_) {}
-  }, [identitas, identitasSelesai, jawaban, tabelData, diagramData, faseSelesai, cacheKey])
+  }, [identitas, identitasSelesai, jawaban, tabelData, diagramData, faseSelesai, faseView, cacheKey])
 
   useEffect(() => {
     const fetchLkpd = async () => {
@@ -1059,6 +1218,24 @@ export default function LkpdDetailPage() {
     }
     fetchLkpd()
   }, [params.id])
+
+  // Deteksi aktivitas yang sedang terlihat di layar -> update activeAktivitas (untuk auto-show peta per fase)
+  useEffect(() => {
+    if (!lkpd || !identitasSelesai) return
+    const observer = new IntersectionObserver(
+      entries => {
+        const terlihat = entries.filter(e => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)
+        if (terlihat.length > 0) {
+          const idx = Number((terlihat[0].target as HTMLElement).dataset.idx)
+          if (!isNaN(idx)) setActiveAktivitas(idx)
+        }
+      },
+      { rootMargin: '-30% 0px -50% 0px', threshold: [0, 0.25, 0.5] }
+    )
+    const els = document.querySelectorAll('[data-akt-observe]')
+    els.forEach(el => observer.observe(el))
+    return () => observer.disconnect()
+  }, [lkpd, identitasSelesai])
 
   const updateTabel = (id: number, row: number, col: number, val: string) => {
     setTabelData(prev => { const u = (prev[id] || []).map(r => [...r]); if (u[row]) u[row][col] = val; return { ...prev, [id]: u } })
@@ -1192,7 +1369,7 @@ export default function LkpdDetailPage() {
           jawabanHtml = `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px"><thead><tr style="background:#1e3a8a"><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #1e3a8a">Pernyataan</th><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #1e3a8a">Jawaban Siswa</th></tr></thead><tbody>${(a.match_pairs || []).map((p, i) => { const pilih = val[i] || '—'; const ok = pilih === p.kanan; return `<tr style="background:${ok ? '#f0fdf4' : pilih !== '—' ? '#fef2f2' : 'white'}"><td style="padding:6px 10px;border:1px solid #e2e8f0;color:#374151">${p.kiri}</td><td style="padding:6px 10px;border:1px solid #e2e8f0;color:${ok ? '#15803d' : '#dc2626'};font-weight:600">${pilih} ${pilih !== '—' ? (ok ? '✓' : '✗') : ''}</td></tr>` }).join('')}</tbody></table>`
         } else if (a.tipe === 'kategorisasi') {
           const val: Record<number, string> = jawabanVal || {}
-          jawabanHtml = `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px"><thead><tr style="background:#1e3a8a"><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #1e3a8a">Item</th><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #1e3a8a">Kategori (Siswa)</th></tr></thead><tbody>${(a.kat_items || []).map((it, i) => { const pilih = val[i] || '—'; const ok = pilih === it.kategori; return `<tr style="background:${ok ? '#f0fdf4' : pilih !== '—' ? '#fef2f2' : 'white'}"><td style="padding:6px 10px;border:1px solid #e2e8f0;color:#374151">${it.item}</td><td style="padding:6px 10px;border:1px solid #e2e8f0;color:${ok ? '#15803d' : '#dc2626'};font-weight:600">${pilih} ${pilih !== '—' ? (ok ? '✓' : '✗') : ''}</td></tr>` }).join('')}</tbody></table>`
+          jawabanHtml = `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px"><thead><tr style="background:#1e3a8a"><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #1e3a8a">Item</th><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #1e3a8a">Kategori (Siswa)</th></tr></thead><tbody>${(a.kat_items || []).map((it, i) => { const pilih = val[i] || '—'; const ok = pilih !== '—' && samaKategori(pilih, it.kategori); return `<tr style="background:${ok ? '#f0fdf4' : pilih !== '—' ? '#fef2f2' : 'white'}"><td style="padding:6px 10px;border:1px solid #e2e8f0;color:#374151">${it.item}</td><td style="padding:6px 10px;border:1px solid #e2e8f0;color:${ok ? '#15803d' : '#dc2626'};font-weight:600">${pilih} ${pilih !== '—' ? (ok ? '✓' : '✗') : ''}</td></tr>` }).join('')}</tbody></table>`
         } else if (a.tipe === 'paint') {
           jawabanHtml = `<div style="margin-top:8px">${a.paint_instruksi ? `<div style="font-size:11px;color:#374151;margin-bottom:6px">${a.paint_instruksi}</div>` : ''}${jawabanVal ? `<img src="${jawabanVal}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px" />` : '<div style="height:120px;border:2px dashed #d1d5db;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-style:italic">Belum ada gambar</div>'}</div>`
         } else if (a.tipe === 'peta') {
@@ -1319,70 +1496,192 @@ export default function LkpdDetailPage() {
   )
 
   const aktivitas = lkpd.pertanyaan || []
+  const adaFaseAplikasi = aktivitas.some(a => (a.fase || 'Memahami') === 'Mengaplikasi')
+  // Fase yang benar-benar ada di LKPD ini, terurut
+  const faseTersedia = FASE_URUT.filter(f => aktivitas.some(a => (a.fase || 'Memahami') === f))
+  // Peta muncul di kanan bila sedang di halaman Fase Mengaplikasi & toggle nyala
+  const petaAktif = adaFaseAplikasi && faseView === 'Mengaplikasi' && petaTampil
+
+  // Navigasi antar halaman fase dengan transisi halus
+  const pindahFase = (target: typeof faseView) => {
+    setTransisi(true)
+    setTimeout(() => {
+      setFaseView(target)
+      window.scrollTo({ top: 0, behavior: 'auto' })
+      setTransisi(false)
+    }, 180)
+  }
 
   // ── Halaman Utama ──
   return (
     <div className="min-h-screen bg-gray-50" id="lkpd-print">
-      <style>{`@media print { .no-print{display:none!important} #lkpd-sidebar{display:none!important} body{background:white} }`}</style>
+      <style>{`@media print { .no-print{display:none!important} body{background:white} }`}</style>
 
       {/* Top bar */}
       <div className="no-print sticky top-16 z-40 bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-4">
+        <div className="max-w-full mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-gray-800 truncate">{lkpd.judul}</p>
-            <p className="text-[10px] text-gray-400">{lkpd.kabupaten?.nama} · {lkpd.jenis_bencana?.nama}</p>
+            <p className="text-[10px] text-gray-400 truncate">{lkpd.kabupaten?.nama} · {lkpd.jenis_bencana?.nama}</p>
           </div>
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <div className="hidden sm:flex items-center gap-2">
-              <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${progress}%` }} /></div>
+
+          {/* Navigasi fase ringkas (bar atas) */}
+          {faseView !== 'intro' && faseView !== 'selesai' && (
+            <select value={faseView}
+              onChange={e => pindahFase(e.target.value as any)}
+              className="hidden md:block text-[11px] border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white focus:outline-none focus:border-blue-400">
+              {faseTersedia.map(f => {
+                const idxAktif = faseTersedia.indexOf(faseView as any)
+                const boleh = !!faseSelesai[f] || faseTersedia.indexOf(f) <= idxAktif
+                return <option key={f} value={f} disabled={!boleh}>Fase {f}{faseSelesai[f] ? ' ✓' : ''}</option>
+              })}
+            </select>
+          )}
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="hidden lg:flex items-center gap-2">
+              <div className="w-20 h-1.5 bg-gray-200 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${progress}%` }} /></div>
               <span className="text-[11px] text-gray-500">{progress}%</span>
             </div>
+
+            {/* Toggle peta (laptop) — hanya bila LKPD punya fase aplikasi */}
+            {adaFaseAplikasi && (
+              <button onClick={() => setPetaTampil(v => !v)}
+                className={`hidden lg:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-all border ${petaTampil ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-500 hover:border-blue-300'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" /></svg>
+                {petaTampil ? 'Sembunyikan Peta' : 'Tampilkan Peta'}
+              </button>
+            )}
+
+            {/* Buka peta (HP) */}
+            {adaFaseAplikasi && (
+              <button onClick={() => { setPetaMobileBuka(true); setPetaPernahDibuka(true) }}
+                className="lg:hidden flex items-center gap-1.5 text-xs bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1.5 rounded-lg font-medium">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" /></svg>
+                Peta
+              </button>
+            )}
+
             <button onClick={generatePDF} disabled={generating} className="flex items-center gap-1.5 text-xs bg-blue-950 text-white px-3 py-1.5 rounded-lg hover:bg-blue-900 transition-all font-medium">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.056 48.056 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" /></svg>
-              {generating ? 'Generating PDF...' : 'Cetak PDF'}
+              <span className="hidden sm:inline">{generating ? 'Generating PDF...' : 'Cetak PDF'}</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-8 flex gap-6">
-        {/* Sidebar */}
-        <div id="lkpd-sidebar" className="no-print w-52 flex-shrink-0">
-          <div className="sticky top-36">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Identitas</p>
-              <p className="text-xs font-semibold text-gray-800">{[identitas.nama, ...(identitas.anggota || [])].filter(Boolean).join(', ')}</p>
-              <p className="text-[11px] text-gray-500">{identitas.kelas}</p>
-              <p className="text-[11px] text-gray-400 truncate">{identitas.sekolah}</p>
-              <button onClick={() => { if (!confirm('Hapus semua jawaban dan mulai ulang?')) return; localStorage.removeItem(cacheKey); setIdentitas({ nama: '', sekolah: '', kelas: '', anggota: [] }); setIdentitasSelesai(false); setJawaban({}); setFaseSelesai({}) }} className="mt-3 w-full text-[10px] text-red-400 hover:text-red-600 border border-red-100 hover:border-red-300 rounded-lg py-1.5 transition-all">Mulai Ulang</button>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide px-4 py-3 border-b border-gray-100">Aktivitas</p>
-              {aktivitas.map((a: Aktivitas, i: number) => (
-                <button key={a.id} onClick={() => { setActiveAktivitas(i); document.getElementById(`aktivitas-${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
-                  className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-all border-b border-gray-50 last:border-0 ${activeAktivitas === i ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[9px] font-bold ${faseSelesai[a.fase || 'Memahami'] ? 'bg-blue-950 text-white' : isAnswered(a) ? 'bg-green-500 text-white' : activeAktivitas === i ? 'bg-blue-900 text-white' : 'bg-gray-200 text-gray-500'}`}>
-                    {faseSelesai[a.fase || 'Memahami'] ? '🔒' : isAnswered(a) ? '✓' : i + 1}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <span className={`text-[11px] truncate font-medium block ${activeAktivitas === i ? 'text-blue-800' : 'text-gray-600'}`}>{a.judul}</span>
-                    <span className={`text-[9px] ${(a.fase || 'Memahami') === 'Memahami' ? 'text-blue-400' : (a.fase || 'Memahami') === 'Mengaplikasi' ? 'text-green-500' : 'text-amber-500'}`}>{a.fase || 'Memahami'}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+      <div className="flex justify-center">
+        {/* Panel LKPD (kiri) */}
+        <div className={`w-full px-4 sm:px-6 py-6 transition-all ${petaAktif ? 'lg:max-w-[640px] xl:max-w-[720px]' : 'max-w-4xl'}`}>
 
-        {/* Konten */}
-        <div className="flex-1 min-w-0 flex flex-col gap-6">
+          {/* ============ STEPPER 3 FASE ============ */}
+          {faseView !== 'intro' && (
+            <div className="no-print mb-6">
+              <div className="flex items-center">
+                {faseTersedia.map((f, i) => {
+                  const STY: Record<string, { label: string; icon: string; ring: string; solid: string }> = {
+                    Memahami: { label: 'Memahami', icon: '📖', ring: 'ring-blue-200', solid: 'bg-blue-600' },
+                    Mengaplikasi: { label: 'Mengaplikasi', icon: '🔬', ring: 'ring-emerald-200', solid: 'bg-emerald-600' },
+                    Merefleksi: { label: 'Merefleksi', icon: '💭', ring: 'ring-amber-200', solid: 'bg-amber-500' },
+                  }
+                  const s = STY[f]
+                  const selesai = !!faseSelesai[f]
+                  const aktif = faseView === f
+                  const idxAktif = faseTersedia.indexOf(faseView as any)
+                  const bolehKlik = selesai || i <= idxAktif
+                  return (
+                    <div key={f} className="flex items-center flex-1 last:flex-none">
+                      <button type="button" disabled={!bolehKlik}
+                        onClick={() => bolehKlik && pindahFase(f)}
+                        className={`group flex flex-col items-center gap-1.5 ${bolehKlik ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+                        <div className={`relative w-11 h-11 rounded-2xl flex items-center justify-center text-lg transition-all
+                          ${aktif ? `${s.solid} text-white shadow-lg ring-4 ${s.ring}` : selesai ? `${s.solid} text-white` : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>
+                          {selesai && !aktif
+                            ? <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                            : <span>{s.icon}</span>}
+                        </div>
+                        <span className={`text-[11px] font-semibold transition-colors ${aktif ? 'text-gray-800' : selesai ? 'text-gray-600' : 'text-gray-400'}`}>{s.label}</span>
+                      </button>
+                      {i < faseTersedia.length - 1 && (
+                        <div className="flex-1 h-0.5 mx-2 mb-5 rounded-full overflow-hidden bg-gray-200">
+                          <div className={`h-full transition-all duration-500 ${faseSelesai[f] ? 'bg-emerald-500 w-full' : 'w-0'}`} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Print header */}
           <div className="hidden print:block text-center border-b-2 pb-4 mb-4">
             <h1 className="text-xl font-bold">LEMBAR KERJA PESERTA DIDIK</h1>
             <h2 className="text-base mt-1">{lkpd.judul}</h2>
             <p className="text-sm text-gray-500">{lkpd.kabupaten?.nama} — {lkpd.jenis_bencana?.nama}</p>
           </div>
 
-          {FASE_URUT.map(fase => {
+          {/* ============ HALAMAN INTRO ============ */}
+          {faseView === 'intro' && (
+            <div className={`no-print transition-all duration-200 ${transisi ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0'}`}>
+              <div className="bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 rounded-3xl p-8 sm:p-10 text-white relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-blue-400/10 rounded-full -mr-20 -mt-20" />
+                <div className="absolute bottom-0 left-0 w-40 h-40 bg-blue-300/10 rounded-full -ml-10 -mb-10" />
+                <div className="relative">
+                  <span className="text-[11px] font-semibold text-blue-300 uppercase tracking-[0.2em]">Lembar Kerja Peserta Didik</span>
+                  <h1 className="text-2xl sm:text-3xl font-extrabold leading-tight mt-2 mb-3">{lkpd.judul}</h1>
+                  <p className="text-blue-200/80 text-sm">{lkpd.kabupaten?.nama} · {lkpd.jenis_bencana?.nama}</p>
+                  {(lkpd.prinsip_pembelajaran || []).length > 0 && (
+                    <div className="flex gap-2 flex-wrap mt-5">
+                      {(lkpd.prinsip_pembelajaran || []).map(p => (
+                        <span key={p} className="text-[11px] bg-white/10 backdrop-blur text-blue-50 px-3 py-1.5 rounded-full border border-white/10">{p}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Ringkasan 3 fase */}
+              <div className="grid sm:grid-cols-3 gap-3 mt-5">
+                {faseTersedia.map(f => {
+                  const META: Record<string, { icon: string; desc: string; accent: string }> = {
+                    Memahami: { icon: '📖', desc: 'Membangun pemahaman dasar lewat bacaan & permainan interaktif.', accent: 'border-blue-200 bg-blue-50' },
+                    Mengaplikasi: { icon: '🔬', desc: 'Menerapkan konsep dengan menganalisis peta WebGIS nyata.', accent: 'border-emerald-200 bg-emerald-50' },
+                    Merefleksi: { icon: '💭', desc: 'Merefleksikan pengalaman & makna pembelajaran.', accent: 'border-amber-200 bg-amber-50' },
+                  }
+                  const m = META[f]
+                  const jml = aktivitas.filter(a => (a.fase || 'Memahami') === f).length
+                  return (
+                    <div key={f} className={`rounded-2xl border p-4 ${m.accent}`}>
+                      <div className="text-2xl mb-2">{m.icon}</div>
+                      <p className="text-sm font-bold text-gray-800">Fase {f}</p>
+                      <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{m.desc}</p>
+                      <p className="text-[10px] font-semibold text-gray-400 mt-2">{jml} aktivitas</p>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Identitas + mulai */}
+              <div className="bg-white border border-gray-200 rounded-2xl p-5 mt-5 flex items-center justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Dikerjakan oleh</p>
+                  <p className="text-sm font-semibold text-gray-800">{[identitas.nama, ...(identitas.anggota || [])].filter(Boolean).join(', ')}</p>
+                  <p className="text-[11px] text-gray-500">{identitas.kelas} · {identitas.sekolah}</p>
+                </div>
+                <button onClick={() => pindahFase(faseTersedia[0])}
+                  className="bg-blue-950 hover:bg-blue-900 text-white px-6 py-3 rounded-xl font-semibold text-sm transition-all flex items-center gap-2 shadow-lg shadow-blue-950/20">
+                  Mulai Fase {faseTersedia[0]}
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Konten fase (per halaman) */}
+          <div className={`flex-1 min-w-0 flex flex-col gap-6 transition-all duration-200 ${transisi ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0'}`}>
+
+          {FASE_URUT.filter(fase => faseView === fase).map(fase => {
             const faseAktivitas = aktivitas.filter((a: Aktivitas) => (a.fase || 'Memahami') === fase)
             if (faseAktivitas.length === 0) return null
             const FASE_STYLE = {
@@ -1423,7 +1722,7 @@ export default function LkpdDetailPage() {
                 {faseAktivitas.map((a: Aktivitas) => {
                   const index = aktivitas.indexOf(a)
                   return (
-                    <div key={a.id} id={`aktivitas-${index}`} className="bg-white border border-gray-200 rounded-2xl overflow-hidden scroll-mt-36 mb-5">
+                    <div key={a.id} id={`aktivitas-${index}`} data-akt-observe data-idx={index} className="bg-white border border-gray-200 rounded-2xl overflow-hidden scroll-mt-36 mb-5">
                       <div className={`h-1 ${fs.bar}`} />
                       <div className="bg-gradient-to-r from-blue-950 to-blue-900 px-6 py-4">
                         <div className="flex items-center justify-between gap-2">
@@ -1469,7 +1768,7 @@ export default function LkpdDetailPage() {
                         {a.ada_peta && (
                           <div className="no-print mb-5">
                             <div className="relative rounded-xl overflow-hidden border border-gray-200" style={{ height: '380px', isolation: 'isolate' }}>
-                              <MapComponent mapId={`map-lkpd-${a.id}`} height="380px" />
+                              <MapComponent mapId={`map-lkpd-${a.id}`} height="380px" compact />
                               <button onClick={() => setFullscreenMapId(a.id)} className="absolute top-2 right-2 z-[1000] flex items-center gap-1.5 bg-white border border-gray-200 shadow-md px-3 py-1.5 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50 transition-all">
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
                                 Peta Penuh
@@ -1569,8 +1868,8 @@ export default function LkpdDetailPage() {
                   )
                 })}
 
-                {/* ── Tombol Selesai & Periksa per FASE ── */}
-                <div className="no-print mb-2">
+                {/* ── Tombol Selesai & Navigasi per FASE ── */}
+                <div className="no-print mb-2 flex flex-col gap-3">
                   {!locked ? (
                     <button onClick={() => {
                       let pesan = `Kunci semua jawaban Fase ${fase}?\n\nSetelah dikunci, jawaban TIDAK bisa diubah lagi`
@@ -1579,41 +1878,160 @@ export default function LkpdDetailPage() {
                       if (belumDijawab > 0) pesan += `\n\n⚠ Masih ada ${belumDijawab} aktivitas yang belum dijawab.`
                       if (confirm(pesan)) setFaseSelesai(p => ({ ...p, [fase]: true }))
                     }}
-                      className="w-full bg-blue-950 hover:bg-blue-900 text-white py-3 rounded-2xl font-semibold text-sm transition-all flex items-center justify-center gap-2">
+                      className="w-full bg-blue-950 hover:bg-blue-900 text-white py-3.5 rounded-2xl font-semibold text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-950/20">
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                       Selesai Fase {fase} & Periksa Jawaban
                     </button>
                   ) : (
-                    <div className={`rounded-2xl border p-4 flex items-center justify-between gap-3 flex-wrap ${gradeItems.length > 0 ? 'bg-blue-50/60 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">🔒</span>
+                    <>
+                      <div className={`rounded-2xl border p-4 flex items-center gap-3 ${gradeItems.length > 0 ? 'bg-emerald-50/70 border-emerald-200' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                        </div>
                         <div>
                           <p className="text-sm font-bold text-gray-800">Fase {fase} selesai & terkunci</p>
                           {gradeItems.length > 0
-                            ? <p className="text-xs text-gray-500">Skor objektif: <b className="text-blue-700">{totalBenar} / {totalSoal}</b> {totalSoal > 0 ? `(${Math.round((totalBenar / totalSoal) * 100)}%)` : ''} · {gradeItems.length} aktivitas dinilai otomatis</p>
+                            ? <p className="text-xs text-gray-500">Skor objektif: <b className="text-emerald-700">{totalBenar} / {totalSoal}</b> {totalSoal > 0 ? `(${Math.round((totalBenar / totalSoal) * 100)}%)` : ''} · {gradeItems.length} aktivitas dinilai otomatis</p>
                             : <p className="text-xs text-gray-500">Jawaban telah difinalisasi (tidak ada penilaian otomatis di fase ini)</p>}
                         </div>
                       </div>
-                    </div>
+
+                      {/* Navigasi ke fase berikutnya / selesai */}
+                      {(() => {
+                        const idx = faseTersedia.indexOf(fase)
+                        const berikut = faseTersedia[idx + 1]
+                        if (berikut) return (
+                          <button onClick={() => pindahFase(berikut)}
+                            className="w-full bg-blue-950 hover:bg-blue-900 text-white py-3.5 rounded-2xl font-semibold text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-950/20">
+                            Lanjut ke Fase {berikut}
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
+                          </button>
+                        )
+                        return (
+                          <button onClick={() => pindahFase('selesai')}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-2xl font-semibold text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20">
+                            Selesai & Lihat Ringkasan
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
+                          </button>
+                        )
+                      })()}
+                    </>
                   )}
+
+                  {/* Navigasi kembali */}
+                  {(() => {
+                    const idx = faseTersedia.indexOf(fase)
+                    const sebelum = idx > 0 ? faseTersedia[idx - 1] : null
+                    return (
+                      <button onClick={() => sebelum ? pindahFase(sebelum) : pindahFase('intro')}
+                        className="text-xs text-gray-400 hover:text-gray-600 transition-all flex items-center gap-1.5 mx-auto">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                        {sebelum ? `Kembali ke Fase ${sebelum}` : 'Kembali ke Halaman Awal'}
+                      </button>
+                    )
+                  })()}
                 </div>
               </div>
             )
           })}
 
-          {/* Footer */}
-          <div className="no-print bg-white border border-gray-200 rounded-2xl p-5 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-gray-800">{aktivitas.filter(isAnswered).length} dari {aktivitas.length} aktivitas selesai</p>
-              <p className="text-xs text-gray-400 mt-0.5">Kunci tiap fase untuk melihat skor, lalu cetak PDF di akhir</p>
+          {/* ============ HALAMAN SELESAI (RINGKASAN) ============ */}
+          {faseView === 'selesai' && (
+            <div className={`no-print transition-all duration-200 ${transisi ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0'}`}>
+              <div className="bg-gradient-to-br from-emerald-600 via-emerald-600 to-teal-600 rounded-3xl p-8 sm:p-10 text-white text-center relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-56 h-56 bg-white/10 rounded-full -mr-16 -mt-16" />
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-extrabold mb-2">Selamat, LKPD Selesai!</h1>
+                  <p className="text-emerald-50/80 text-sm">Kamu telah menyelesaikan seluruh fase Pembelajaran Mendalam.</p>
+                </div>
+              </div>
+
+              {/* Rekap skor per fase */}
+              <div className="grid sm:grid-cols-3 gap-3 mt-5">
+                {faseTersedia.map(f => {
+                  const items = aktivitas.filter(a => (a.fase || 'Memahami') === f && isAutoGrade(a.tipe))
+                  const benar = items.reduce((s, a) => s + (getScore(a)?.benar || 0), 0)
+                  const soal = items.reduce((s, a) => s + (getScore(a)?.total || 0), 0)
+                  const STY: Record<string, string> = { Memahami: 'text-blue-700 bg-blue-50 border-blue-200', Mengaplikasi: 'text-emerald-700 bg-emerald-50 border-emerald-200', Merefleksi: 'text-amber-700 bg-amber-50 border-amber-200' }
+                  return (
+                    <div key={f} className={`rounded-2xl border p-4 ${STY[f]}`}>
+                      <p className="text-xs font-bold uppercase tracking-wide opacity-70">Fase {f}</p>
+                      {soal > 0
+                        ? <p className="text-2xl font-extrabold mt-1">{benar}<span className="text-base font-semibold opacity-50">/{soal}</span></p>
+                        : <p className="text-sm font-semibold mt-2">Selesai ✓</p>}
+                      {soal > 0 && <p className="text-[11px] opacity-60 mt-0.5">{Math.round((benar / soal) * 100)}% benar</p>}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Cetak PDF */}
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 mt-5 text-center">
+                <p className="text-sm font-semibold text-gray-800 mb-1">Simpan hasil pekerjaanmu</p>
+                <p className="text-xs text-gray-400 mb-4">Cetak atau unduh LKPD lengkap beserta seluruh jawabanmu dalam format PDF.</p>
+                <button onClick={generatePDF} disabled={generating}
+                  className="bg-blue-950 hover:bg-blue-900 text-white px-6 py-3 rounded-xl font-semibold text-sm transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-950/20">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.056 48.056 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" /></svg>
+                  {generating ? 'Menyiapkan PDF...' : 'Cetak / Download PDF'}
+                </button>
+                <div className="mt-4">
+                  <button onClick={() => pindahFase(faseTersedia[faseTersedia.length - 1])}
+                    className="text-xs text-gray-400 hover:text-gray-600 transition-all inline-flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                    Kembali ke fase terakhir
+                  </button>
+                </div>
+              </div>
+
+              {/* Mulai ulang */}
+              <div className="text-center mt-5">
+                <button onClick={() => { if (!confirm('Hapus semua jawaban dan mulai ulang dari awal?')) return; localStorage.removeItem(cacheKey); setIdentitas({ nama: '', sekolah: '', kelas: '', anggota: [] }); setIdentitasSelesai(false); setJawaban({}); setFaseSelesai({}); setFaseView('intro') }}
+                  className="text-[11px] text-red-400 hover:text-red-600 border border-red-100 hover:border-red-300 rounded-lg px-4 py-2 transition-all">Mulai Ulang dari Awal</button>
+              </div>
             </div>
-            <button onClick={generatePDF} disabled={generating} className="bg-blue-950 text-white px-5 py-2.5 rounded-xl font-semibold text-sm hover:bg-blue-900 transition-all flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.056 48.056 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" /></svg>
-              {generating ? 'Generating...' : 'Cetak / Download PDF'}
-            </button>
+          )}
           </div>
         </div>
+
+        {/* Panel Peta (kanan, sticky) — hanya laptop, saat fase Mengaplikasi */}
+        {petaAktif && (
+          <div className="no-print hidden lg:block flex-1 min-w-0 border-l border-gray-200 bg-white">
+            <div className="sticky top-[7.5rem] h-[calc(100vh-7.5rem)] flex flex-col">
+              <div className="flex items-center justify-between px-4 py-2 bg-blue-950 flex-shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg className="w-4 h-4 text-blue-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" /></svg>
+                  <p className="text-white text-xs font-semibold truncate">Peta WebGIS Lampung Edu Gisaster</p>
+                </div>
+                <button onClick={() => setFullscreenMapId(-1)} title="Perbesar peta"
+                  className="flex items-center gap-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-medium px-2 py-1 rounded-md transition-all flex-shrink-0">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
+                  Perbesar
+                </button>
+              </div>
+              <div className="flex-1 min-h-0" style={{ isolation: 'isolate' }}>
+                <MapComponent mapId="map-lkpd-split" height="100%" compact />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Overlay peta untuk HP */}
+      {petaMobileBuka && (
+        <div className="no-print lg:hidden fixed inset-0 z-[9998] flex flex-col bg-white">
+          <div className="flex items-center justify-between bg-blue-950 px-4 py-2.5 flex-shrink-0">
+            <p className="text-white text-sm font-semibold">Peta WebGIS</p>
+            <button onClick={() => setPetaMobileBuka(false)} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-all">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+              Tutup Peta
+            </button>
+          </div>
+          <div className="flex-1"><MapComponent mapId="map-lkpd-mobile" height="100%" compact /></div>
+        </div>
+      )}
 
       {fullscreenMapId !== null && (
         <div className="fixed inset-0 z-[9999] flex flex-col">
