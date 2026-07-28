@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 interface Kabupaten { id: number; nama: string }
@@ -9,7 +9,7 @@ interface LkpdItem {
   id: string; judul: string; published: boolean
   kabupaten: { nama: string }; jenis_bencana: { nama: string }
   kabupaten_id: number; jenis_bencana_id: number; pertanyaan: Aktivitas[]
-  bahan_bacaan?: string; prinsip_pembelajaran?: string[]
+  bahan_bacaan?: string; bahan_gambar?: string[]; prinsip_pembelajaran?: string[]
 }
 
 type TipeAktivitas =
@@ -108,6 +108,79 @@ const defaultKomponen = (tipe: TipeKomponen): Komponen => ({
 
 const inp = "w-full border border-gray-200 px-3 py-2.5 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400 transition-all bg-white"
 const lbl = "text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block"
+
+// Helper kompresi gambar (dipakai untuk bahan bacaan & paint referensi).
+// Membaca file -> resize maks lebar -> ekspor JPEG base64 lewat callback.
+function compressImage(file: File, cb: (dataUrl: string) => void, maxW = 1100, quality = 0.82) {
+  const fr = new FileReader()
+  fr.onload = () => {
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(1, maxW / img.width)
+      const cv = document.createElement('canvas')
+      cv.width = Math.round(img.width * scale)
+      cv.height = Math.round(img.height * scale)
+      cv.getContext('2d')!.drawImage(img, 0, 0, cv.width, cv.height)
+      cb(cv.toDataURL('image/jpeg', quality))
+    }
+    img.src = fr.result as string
+  }
+  fr.readAsDataURL(file)
+}
+
+// Input gambar DUA MODE: unggah file (dikompres jadi base64) ATAU tempel URL/link.
+// Mode link tidak menaikkan ukuran DB — cocok agar satu poster/gambar tidak
+// diunggah berulang kali (cukup tempel tautannya). onAdd dipanggil sekali per gambar.
+function ImageInput({ onAdd, multiple = false }: { onAdd: (url: string) => void; multiple?: boolean }) {
+  const [mode, setMode] = useState<'file' | 'link'>('file')
+  const [link, setLink] = useState('')
+
+  const tambahLink = () => {
+    const u = link.trim()
+    if (!u) return
+    if (!/^https?:\/\//i.test(u) && !u.startsWith('data:')) {
+      alert('Masukkan URL gambar yang valid (diawali http:// atau https://).')
+      return
+    }
+    onAdd(u)
+    setLink('')
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-xl p-2.5 bg-gray-50/60">
+      <div className="flex gap-1 mb-2">
+        {(['file', 'link'] as const).map(m => (
+          <button key={m} type="button" onClick={() => setMode(m)}
+            className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-all ${mode === m ? 'bg-blue-950 border-blue-950 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-blue-300'}`}>
+            {m === 'file' ? '📁 Pilih File' : '🔗 Tempel Link'}
+          </button>
+        ))}
+      </div>
+      {mode === 'file' ? (
+        <input type="file" accept="image/*" multiple={multiple}
+          className="block w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+          onChange={e => {
+            const files = Array.from(e.target.files || [])
+            files.forEach(f => compressImage(f, url => onAdd(url)))
+            e.target.value = ''
+          }} />
+      ) : (
+        <div className="flex gap-2">
+          <input className={inp + ' flex-1'} placeholder="https://... (tautan gambar / poster)"
+            value={link} onChange={e => setLink(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); tambahLink() } }} />
+          <button type="button" onClick={tambahLink}
+            className="text-xs font-semibold bg-blue-950 text-white px-4 rounded-xl hover:bg-blue-900 transition-all flex-shrink-0">Tambah</button>
+        </div>
+      )}
+      <p className="text-[10px] text-gray-400 mt-1.5">
+        {mode === 'file'
+          ? 'File dikompres otomatis lalu disimpan ke database.'
+          : 'Tempel URL gambar yang sudah ada online (Google Drive publik, Imgur, situs lain). Tidak menambah ukuran database — satu tautan bisa dipakai berulang.'}
+      </p>
+    </div>
+  )
+}
 
 // Input daftar dipisah koma yang TIDAK merusak ketikan (spasi/koma aman).
 // Nilai mentah disimpan lokal; array hasil parse dikirim ke parent tiap perubahan.
@@ -433,13 +506,11 @@ function KategorisasiEditor({ a, update }: { a: Aktivitas; update: (f: string, v
 }
 
 // ============================================================
-// FORM AKTIVITAS
-// ============================================================
-// ============================================================
 // EDITOR: Satu komponen tugas di dalam aktivitas gabungan (multi)
 // ============================================================
-function KomponenEditor({ komp, onUpdate, onRemove, index }: {
-  komp: Komponen; onUpdate: (patch: Partial<Komponen>) => void; onRemove: () => void; index: number
+function KomponenEditor({ komp, onUpdate, onRemove, onMoveUp, onMoveDown, canUp, canDown, index }: {
+  komp: Komponen; onUpdate: (patch: Partial<Komponen>) => void; onRemove: () => void
+  onMoveUp: () => void; onMoveDown: () => void; canUp: boolean; canDown: boolean; index: number
 }) {
   const info = KOMPONEN_OPTIONS.find(k => k.value === komp.tipe)
   return (
@@ -449,7 +520,13 @@ function KomponenEditor({ komp, onUpdate, onRemove, index }: {
           <span className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 text-[11px] font-bold flex items-center justify-center">{index + 1}</span>
           <span className="text-xs font-semibold text-gray-700">{info?.icon} {info?.label}</span>
         </div>
-        <button type="button" onClick={onRemove} className="text-[11px] text-red-400 hover:text-red-600 transition-all">Hapus komponen</button>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={onMoveUp} disabled={!canUp} title="Naikkan komponen"
+            className="w-6 h-6 rounded-md text-gray-400 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-25 disabled:cursor-not-allowed text-xs transition-all">▲</button>
+          <button type="button" onClick={onMoveDown} disabled={!canDown} title="Turunkan komponen"
+            className="w-6 h-6 rounded-md text-gray-400 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-25 disabled:cursor-not-allowed text-xs transition-all">▼</button>
+          <button type="button" onClick={onRemove} className="text-[11px] text-red-400 hover:text-red-600 transition-all ml-1">Hapus komponen</button>
+        </div>
       </div>
       <div className="p-4 flex flex-col gap-3">
         {/* ESAI */}
@@ -565,24 +642,7 @@ function KomponenEditor({ komp, onUpdate, onRemove, index }: {
                     className="text-[11px] text-red-500 border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 transition-all">Hapus Gambar</button>
                 </div>
               ) : (
-                <input type="file" accept="image/*"
-                  className="block w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
-                  onChange={e => {
-                    const f = e.target.files?.[0]; if (!f) return
-                    const fr = new FileReader()
-                    fr.onload = () => {
-                      const img = new Image()
-                      img.onload = () => {
-                        const maxW = 1100; const scale = Math.min(1, maxW / img.width)
-                        const cv = document.createElement('canvas')
-                        cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale)
-                        cv.getContext('2d')!.drawImage(img, 0, 0, cv.width, cv.height)
-                        onUpdate({ paint_bg: cv.toDataURL('image/jpeg', 0.82) })
-                      }
-                      img.src = fr.result as string
-                    }
-                    fr.readAsDataURL(f)
-                  }} />
+                <ImageInput onAdd={url => onUpdate({ paint_bg: url })} />
               )}
             </div>
           </div>
@@ -620,16 +680,26 @@ function MultiKomponenSection({ a, update }: { a: Aktivitas; update: (f: string,
   const setKomponen = (k: Komponen[]) => update('komponen', k)
   const patchKomp = (kid: number, patch: Partial<Komponen>) =>
     setKomponen(komponen.map(k => k.kid === kid ? { ...k, ...patch } : k))
+  // Pindahkan komponen naik/turun (revisi urutan sub-aktivitas)
+  const moveKomp = (index: number, dir: -1 | 1) => {
+    const j = index + dir
+    if (j < 0 || j >= komponen.length) return
+    const nk = [...komponen]
+    ;[nk[index], nk[j]] = [nk[j], nk[index]]
+    setKomponen(nk)
+  }
   return (
     <div className="flex flex-col gap-3">
       <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
         <p className="text-[11px] font-bold text-indigo-700 mb-1">🧩 Aktivitas Gabungan</p>
-        <p className="text-xs text-indigo-600">Satu aktivitas ini bisa memuat beberapa komponen tugas sekaligus (mis. isi tabel, buat diagram, lalu jawab pertanyaan) — semua di bawah satu Instruksi Teknis, Literasi Bencana, dan Literasi Spasial.</p>
+        <p className="text-xs text-indigo-600">Satu aktivitas ini bisa memuat beberapa komponen tugas sekaligus (mis. isi tabel, buat diagram, lalu jawab pertanyaan) — semua di bawah satu Instruksi Teknis, Literasi Bencana, dan Literasi Spasial. Gunakan tombol ▲▼ untuk mengatur urutan.</p>
       </div>
       {komponen.map((k, i) => (
         <KomponenEditor key={k.kid} komp={k} index={i}
           onUpdate={patch => patchKomp(k.kid, patch)}
-          onRemove={() => setKomponen(komponen.filter(x => x.kid !== k.kid))} />
+          onRemove={() => setKomponen(komponen.filter(x => x.kid !== k.kid))}
+          onMoveUp={() => moveKomp(i, -1)} onMoveDown={() => moveKomp(i, 1)}
+          canUp={i > 0} canDown={i < komponen.length - 1} />
       ))}
       <div className="flex flex-wrap gap-2">
         {KOMPONEN_OPTIONS.map(opt => (
@@ -645,12 +715,24 @@ function MultiKomponenSection({ a, update }: { a: Aktivitas; update: (f: string,
   )
 }
 
+// ============================================================
+// FORM AKTIVITAS
+// ============================================================
 function FormAktivitas({ aktivitasList, setAktivitasList }: {
   aktivitasList: Aktivitas[]
   setAktivitasList: (a: Aktivitas[]) => void
 }) {
   const update = (id: number, field: string, value: any) =>
     setAktivitasList(aktivitasList.map(a => a.id === id ? { ...a, [field]: value } : a))
+
+  // Pindahkan aktivitas naik/turun (revisi urutan aktivitas)
+  const moveAktivitas = (index: number, dir: -1 | 1) => {
+    const j = index + dir
+    if (j < 0 || j >= aktivitasList.length) return
+    const ni = [...aktivitasList]
+    ;[ni[index], ni[j]] = [ni[j], ni[index]]
+    setAktivitasList(ni)
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -669,8 +751,14 @@ function FormAktivitas({ aktivitasList, setAktivitasList }: {
                 <span className="text-[10px] text-blue-300/70">{tipeInfo?.icon} {tipeInfo?.label}</span>
                 {tipeInfo?.autoGrade && <span className="text-[9px] bg-emerald-400/20 text-emerald-200 px-1.5 py-0.5 rounded-full">auto-nilai</span>}
               </div>
-              <button onClick={() => setAktivitasList(aktivitasList.filter(x => x.id !== a.id))}
-                className="text-[11px] text-red-300 hover:text-red-200 transition-all">Hapus</button>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button onClick={() => moveAktivitas(index, -1)} disabled={index === 0} title="Naikkan aktivitas"
+                  className="w-6 h-6 rounded-md text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed text-xs transition-all">▲</button>
+                <button onClick={() => moveAktivitas(index, 1)} disabled={index === aktivitasList.length - 1} title="Turunkan aktivitas"
+                  className="w-6 h-6 rounded-md text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed text-xs transition-all">▼</button>
+                <button onClick={() => setAktivitasList(aktivitasList.filter(x => x.id !== a.id))}
+                  className="text-[11px] text-red-300 hover:text-red-200 transition-all ml-1">Hapus</button>
+              </div>
             </div>
 
             <div className="p-5 flex flex-col gap-3">
@@ -902,29 +990,9 @@ function FormAktivitas({ aktivitasList, setAktivitasList }: {
                           className="text-[11px] text-red-500 border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 transition-all">Hapus Gambar</button>
                       </div>
                     ) : (
-                      <input type="file" accept="image/*"
-                        className="block w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
-                        onChange={e => {
-                          const f = e.target.files?.[0]
-                          if (!f) return
-                          const fr = new FileReader()
-                          fr.onload = () => {
-                            const img = new Image()
-                            img.onload = () => {
-                              const maxW = 1100
-                              const scale = Math.min(1, maxW / img.width)
-                              const cv = document.createElement('canvas')
-                              cv.width = Math.round(img.width * scale)
-                              cv.height = Math.round(img.height * scale)
-                              cv.getContext('2d')!.drawImage(img, 0, 0, cv.width, cv.height)
-                              update(a.id, 'paint_bg', cv.toDataURL('image/jpeg', 0.82))
-                            }
-                            img.src = fr.result as string
-                          }
-                          fr.readAsDataURL(f)
-                        }} />
+                      <ImageInput onAdd={url => update(a.id, 'paint_bg', url)} />
                     )}
-                    <p className="text-[10px] text-gray-400 mt-1">Contoh: peta administrasi Kec. Bumi Waras. Gambar dikompres otomatis dan tampil sebagai latar yang bisa dijiplak.</p>
+                    <p className="text-[10px] text-gray-400 mt-1">Contoh: peta administrasi Kec. Bumi Waras. Bisa unggah file (dikompres) atau tempel link. Tampil sebagai latar yang bisa dijiplak.</p>
                   </div>
                 </div>
               )}
@@ -966,10 +1034,16 @@ export default function AdminLkpdPage() {
   const [selectedKabupaten, setSelectedKabupaten] = useState('')
   const [selectedBencana, setSelectedBencana] = useState('')
   const [bahanBacaan, setBahanBacaan] = useState('')
+  const [bahanGambar, setBahanGambar] = useState<string[]>([])
   const [prinsip, setPrinsip] = useState<string[]>([])
   const [aktivitasList, setAktivitasList] = useState<Aktivitas[]>([])
   const [pesan, setPesan] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Filter daftar LKPD (revisi #1): menurut kab/kota, jenis bencana, & pencarian judul
+  const [filterKab, setFilterKab] = useState('')
+  const [filterBencana, setFilterBencana] = useState('')
+  const [filterCari, setFilterCari] = useState('')
 
   const fetchLkpd = async () => {
     const { data } = await supabase.from('e_lkpd').select('*, kabupaten(nama), jenis_bencana(nama)').order('created_at', { ascending: false })
@@ -984,13 +1058,14 @@ export default function AdminLkpdPage() {
 
   const resetForm = () => {
     setJudul(''); setSelectedKabupaten(''); setSelectedBencana('')
-    setBahanBacaan(''); setPrinsip([]); setAktivitasList([]); setEditTarget(null)
+    setBahanBacaan(''); setBahanGambar([]); setPrinsip([]); setAktivitasList([]); setEditTarget(null)
   }
 
   const handleEdit = (l: LkpdItem) => {
     setEditTarget(l); setJudul(l.judul)
     setSelectedKabupaten(String(l.kabupaten_id)); setSelectedBencana(String(l.jenis_bencana_id))
-    setBahanBacaan(l.bahan_bacaan || ''); setPrinsip(l.prinsip_pembelajaran || [])
+    setBahanBacaan(l.bahan_bacaan || ''); setBahanGambar(l.bahan_gambar || [])
+    setPrinsip(l.prinsip_pembelajaran || [])
     setAktivitasList(l.pertanyaan || []); setMode('edit')
   }
 
@@ -1003,7 +1078,7 @@ export default function AdminLkpdPage() {
     setLoading(true)
     const payload = {
       judul, kabupaten_id: Number(selectedKabupaten), jenis_bencana_id: Number(selectedBencana),
-      bahan_bacaan: bahanBacaan, prinsip_pembelajaran: prinsip,
+      bahan_bacaan: bahanBacaan, bahan_gambar: bahanGambar, prinsip_pembelajaran: prinsip,
       pertanyaan: aktivitasList, published
     }
     let error
@@ -1019,6 +1094,14 @@ export default function AdminLkpdPage() {
 
   const adaFaseMemahami = aktivitasList.some(a => a.fase === 'Memahami')
 
+  // Daftar LKPD setelah difilter
+  const lkpdTampil = lkpdList.filter(l =>
+    (!filterKab || String(l.kabupaten_id) === filterKab) &&
+    (!filterBencana || String(l.jenis_bencana_id) === filterBencana) &&
+    (!filterCari || l.judul.toLowerCase().includes(filterCari.toLowerCase()))
+  )
+  const adaFilterAktif = !!(filterKab || filterBencana || filterCari)
+
   if (mode === 'list') return (
     <div className="p-6 max-w-[1000px]">
       <div className="flex items-center justify-between mb-6">
@@ -1030,45 +1113,80 @@ export default function AdminLkpdPage() {
           className="bg-blue-950 hover:bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all">+ Buat E-LKPD</button>
       </div>
 
-      {lkpdList.length === 0 && (
+      {lkpdList.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center text-gray-400 text-sm">Belum ada E-LKPD</div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {lkpdList.map(l => (
-          <div key={l.id} className="bg-white rounded-2xl border border-gray-200 p-5 hover:border-blue-200 hover:shadow-sm transition-all group">
-            <div className="mb-3">
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${l.published ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>{l.published ? 'Live' : 'Draft'}</span>
-                {(l.prinsip_pembelajaran || []).map(p => <span key={p} className="text-[9px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-200">{p}</span>)}
-              </div>
-              <h3 className="font-semibold text-gray-800 text-sm mb-1">{l.judul}</h3>
-              <p className="text-xs text-gray-400">{l.kabupaten?.nama} · {l.jenis_bencana?.nama} · {l.pertanyaan?.length || 0} aktivitas</p>
+      ) : (
+        <>
+          {/* Filter menurut kab/kota & jenis bencana */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-5 flex flex-wrap gap-3 items-end">
+            <div className="flex-1 min-w-[160px]">
+              <label className={lbl}>Cari Judul</label>
+              <input className={inp} placeholder="Ketik judul..." value={filterCari} onChange={e => setFilterCari(e.target.value)} />
             </div>
-            <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-wrap">
-              <button onClick={() => handleEdit(l)} className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 font-medium">Edit</button>
-              <button onClick={() => supabase.from('e_lkpd').update({ published: !l.published }).eq('id', l.id).then(fetchLkpd)}
-                className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 font-medium">{l.published ? 'Unpublish' : 'Publish'}</button>
-              <button onClick={async () => {
-                const { error } = await supabase.from('e_lkpd').insert({
-                  judul: `${l.judul} (Salinan)`,
-                  kabupaten_id: l.kabupaten_id,
-                  jenis_bencana_id: l.jenis_bencana_id,
-                  pertanyaan: l.pertanyaan || [],
-                  bahan_bacaan: l.bahan_bacaan || '',
-                  prinsip_pembelajaran: l.prinsip_pembelajaran || [],
-                  published: false,
-                })
-                if (error) alert('Gagal duplikat: ' + error.message)
-                else fetchLkpd()
-              }}
-                className="text-xs bg-blue-50 border border-blue-200 text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-100 font-medium">Duplikat</button>
-              <button onClick={async () => { if (!confirm('Yakin hapus?')) return; await supabase.from('e_lkpd').delete().eq('id', l.id); fetchLkpd() }}
-                className="text-xs bg-red-50 border border-red-100 text-red-500 px-2.5 py-1.5 rounded-lg hover:bg-red-100 font-medium">Hapus</button>
+            <div className="flex-1 min-w-[160px]">
+              <label className={lbl}>Kabupaten/Kota</label>
+              <select className={inp} value={filterKab} onChange={e => setFilterKab(e.target.value)}>
+                <option value="">Semua Kab/Kota</option>
+                {kabupatenList.map(k => <option key={k.id} value={k.id}>{k.nama}</option>)}
+              </select>
             </div>
+            <div className="flex-1 min-w-[160px]">
+              <label className={lbl}>Jenis Bencana</label>
+              <select className={inp} value={filterBencana} onChange={e => setFilterBencana(e.target.value)}>
+                <option value="">Semua Bencana</option>
+                {bencanaList.map(b => <option key={b.id} value={b.id}>{b.nama}</option>)}
+              </select>
+            </div>
+            {adaFilterAktif && (
+              <button onClick={() => { setFilterKab(''); setFilterBencana(''); setFilterCari('') }}
+                className="text-xs text-gray-500 border border-gray-200 rounded-xl px-3 py-2.5 hover:bg-gray-50 transition-all">Reset</button>
+            )}
           </div>
-        ))}
-      </div>
+
+          <p className="text-xs text-gray-400 mb-3">Menampilkan {lkpdTampil.length} dari {lkpdList.length} E-LKPD</p>
+
+          {lkpdTampil.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center text-gray-400 text-sm">Tidak ada E-LKPD yang cocok dengan filter.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {lkpdTampil.map(l => (
+                <div key={l.id} className="bg-white rounded-2xl border border-gray-200 p-5 hover:border-blue-200 hover:shadow-sm transition-all group">
+                  <div className="mb-3">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${l.published ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>{l.published ? 'Live' : 'Draft'}</span>
+                      {(l.prinsip_pembelajaran || []).map(p => <span key={p} className="text-[9px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-200">{p}</span>)}
+                    </div>
+                    <h3 className="font-semibold text-gray-800 text-sm mb-1">{l.judul}</h3>
+                    <p className="text-xs text-gray-400">{l.kabupaten?.nama} · {l.jenis_bencana?.nama} · {l.pertanyaan?.length || 0} aktivitas</p>
+                  </div>
+                  <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-wrap">
+                    <button onClick={() => handleEdit(l)} className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 font-medium">Edit</button>
+                    <button onClick={() => supabase.from('e_lkpd').update({ published: !l.published }).eq('id', l.id).then(fetchLkpd)}
+                      className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 font-medium">{l.published ? 'Unpublish' : 'Publish'}</button>
+                    <button onClick={async () => {
+                      const { error } = await supabase.from('e_lkpd').insert({
+                        judul: `${l.judul} (Salinan)`,
+                        kabupaten_id: l.kabupaten_id,
+                        jenis_bencana_id: l.jenis_bencana_id,
+                        pertanyaan: l.pertanyaan || [],
+                        bahan_bacaan: l.bahan_bacaan || '',
+                        bahan_gambar: l.bahan_gambar || [],
+                        prinsip_pembelajaran: l.prinsip_pembelajaran || [],
+                        published: false,
+                      })
+                      if (error) alert('Gagal duplikat: ' + error.message)
+                      else fetchLkpd()
+                    }}
+                      className="text-xs bg-blue-50 border border-blue-200 text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-100 font-medium">Duplikat</button>
+                    <button onClick={async () => { if (!confirm('Yakin hapus?')) return; await supabase.from('e_lkpd').delete().eq('id', l.id); fetchLkpd() }}
+                      className="text-xs bg-red-50 border border-red-100 text-red-500 px-2.5 py-1.5 rounded-lg hover:bg-red-100 font-medium">Hapus</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 
@@ -1112,15 +1230,35 @@ export default function AdminLkpdPage() {
       </div>
 
       {/* Bahan Bacaan (Fase Memahami) */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-5 flex flex-col gap-2">
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-5 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-sm text-gray-700">Bahan Bacaan <span className="text-gray-400 font-normal">(Fase Memahami)</span></h2>
           <span className="text-[10px] text-gray-400">Muncul di awal sebelum aktivitas Fase Memahami</span>
         </div>
         <textarea className={inp} rows={6} placeholder="Tulis materi bacaan tentang bencana (definisi, jenis, faktor, lembaga, fase manajemen, dsb). Siswa membaca ini dulu sebelum mengerjakan aktivitas Fase Memahami."
           value={bahanBacaan} onChange={e => setBahanBacaan(e.target.value)} />
-        {!adaFaseMemahami && bahanBacaan && (
-          <p className="text-[11px] text-amber-500">Catatan: belum ada aktivitas berfase "Memahami". Bahan bacaan hanya tampil bila ada aktivitas Fase Memahami.</p>
+
+        {/* Gambar pendukung bacaan (revisi #2) */}
+        <div>
+          <label className={lbl}>Gambar Pendukung Bacaan (opsional — bisa lebih dari satu)</label>
+          {bahanGambar.length > 0 && (
+            <div className="flex flex-wrap gap-3 mb-2">
+              {bahanGambar.map((g, i) => (
+                <div key={i} className="relative group/img">
+                  <img src={g} alt={`Gambar bacaan ${i + 1}`} className="w-40 h-28 object-cover rounded-lg border border-gray-200" />
+                  <span className="absolute bottom-1 left-1 text-[9px] bg-black/50 text-white px-1.5 py-0.5 rounded">Gambar {i + 1}</span>
+                  <button type="button" onClick={() => setBahanGambar(bahanGambar.filter((_, idx) => idx !== i))}
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs opacity-0 group-hover/img:opacity-100 transition-all shadow flex items-center justify-center">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <ImageInput multiple onAdd={url => setBahanGambar(prev => [...prev, url])} />
+          <p className="text-[10px] text-gray-400 mt-1">Contoh: peta rawan bencana, foto lapangan, infografis. Tampil di bawah teks bacaan pada fase Memahami. Bisa unggah file atau tempel link.</p>
+        </div>
+
+        {!adaFaseMemahami && (bahanBacaan || bahanGambar.length > 0) && (
+          <p className="text-[11px] text-amber-500">Catatan: belum ada aktivitas berfase "Memahami". Bahan bacaan & gambar hanya tampil bila ada aktivitas Fase Memahami.</p>
         )}
       </div>
 

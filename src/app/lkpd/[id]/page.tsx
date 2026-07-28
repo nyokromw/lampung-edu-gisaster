@@ -65,6 +65,7 @@ interface Lkpd {
   jenis_bencana: { nama: string }
   pertanyaan: Aktivitas[]
   bahan_bacaan?: string
+  bahan_gambar?: string[]
   prinsip_pembelajaran?: string[]
 }
 
@@ -133,6 +134,75 @@ function parseLangkah(teks: string): { steps: string[]; bernomor: boolean } {
     return { steps: potong, bernomor: true }
   }
   return { steps: [t], bernomor: false }
+}
+
+// Pecah teks instruksi jadi baris berjenis paragraf / langkah bernomor / bullet.
+// - Baris diawali "1." / "2)"  -> langkah bernomor (nomor diurutkan ulang otomatis)
+// - Baris diawali . - *        -> bullet
+// - Bila TIDAK ada penanda nomor tapi teks punya >1 baris (guru menekan Enter
+//   di admin), tiap baris diperlakukan sebagai langkah bernomor
+// - Sisanya paragraf biasa
+type BarisInstruksi = { jenis: 'paragraf' | 'nomor' | 'bullet'; teks: string; no?: number }
+
+function parseInstruksi(teks: string): BarisInstruksi[] {
+  const t = (teks || '').replace(/\r/g, '').trim()
+  if (!t) return []
+
+  let baris: string[]
+  if (t.includes('\n')) {
+    baris = t.split('\n')
+  } else {
+    const penanda = t.match(/\d+[.)]\s/g)
+    baris = penanda && penanda.length >= 2 ? t.split(/\s*(?=\d+[.)]\s)/) : [t]
+  }
+  baris = baris.map(x => x.trim()).filter(Boolean)
+
+  const adaNomor = baris.some(x => /^\d+[.)]\s*/.test(x))
+  let n = 0
+  return baris.map((x): BarisInstruksi => {
+    if (/^[.\-*]\s+/.test(x) || /^[\u2022]\s+/.test(x)) return { jenis: 'bullet', teks: x.replace(/^[\u2022.\-*]\s+/, '') }
+    if (/^\d+[.)]\s*/.test(x)) { n++; return { jenis: 'nomor', teks: x.replace(/^\d+[.)]\s*/, ''), no: n } }
+    if (!adaNomor && baris.length > 1) { n++; return { jenis: 'nomor', teks: x, no: n } }
+    return { jenis: 'paragraf', teks: x }
+  })
+}
+
+// Satu komponen untuk dua tampilan instruksi:
+//   variant="biru"  -> Instruksi Teknis (blok biru)
+//   variant="putih" -> instruksi per sub-aktivitas (latar putih, tetap bisa numbering)
+function BlokInstruksi({ teks, variant = 'biru', judul }: {
+  teks?: string; variant?: 'biru' | 'putih'; judul?: string
+}) {
+  const baris = parseInstruksi(teks || '')
+  if (baris.length === 0) return null
+  const biru = variant === 'biru'
+  const teksCls = `text-sm leading-relaxed ${biru ? 'text-blue-800' : 'text-gray-700'}`
+  return (
+    <div className={biru
+      ? 'bg-blue-50 border border-blue-100 rounded-xl px-4 py-3'
+      : 'bg-white border border-gray-200 rounded-xl px-4 py-3'}>
+      {judul && (
+        <p className={`text-[11px] font-bold uppercase tracking-wide mb-1.5 ${biru ? 'text-blue-700' : 'text-gray-400'}`}>{judul}</p>
+      )}
+      <div className="flex flex-col gap-1.5">
+        {baris.map((b, i) => {
+          if (b.jenis === 'nomor') return (
+            <div key={i} className={`flex gap-2 ${teksCls}`}>
+              <span className={`flex-shrink-0 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5 ${biru ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'}`}>{b.no}</span>
+              <span className="flex-1">{b.teks}</span>
+            </div>
+          )
+          if (b.jenis === 'bullet') return (
+            <div key={i} className={`flex gap-2 ${teksCls}`}>
+              <span className={`flex-shrink-0 ${biru ? 'text-blue-400' : 'text-gray-400'}`}>•</span>
+              <span className="flex-1">{b.teks}</span>
+            </div>
+          )
+          return <p key={i} className={teksCls}>{b.teks}</p>
+        })}
+      </div>
+    </div>
+  )
 }
 
 // ============================================================
@@ -1048,6 +1118,16 @@ function MultiRenderer({ a, jawaban, setJawaban, locked, revealed }: {
     if (cur[ri]) cur[ri][ci] = val
     setJawaban(prev => ({ ...prev, [key(k.kid, '_tabel')]: cur }))
   }
+  const tambahBarisKompTabel = (k: Komponen) => {
+    const cur = getTabel(k).map(r => [...r])
+    const cols = k.kolom_tabel?.length || 2
+    setJawaban(prev => ({ ...prev, [key(k.kid, '_tabel')]: [...cur, Array(cols).fill('')] }))
+  }
+  const hapusBarisKompTabel = (k: Komponen, ri: number) => {
+    const cur = getTabel(k).map(r => [...r])
+    if (cur.length <= 1) return
+    setJawaban(prev => ({ ...prev, [key(k.kid, '_tabel')]: cur.filter((_, i) => i !== ri) }))
+  }
   const getDiagram = (k: Komponen): string[][] => {
     const kk = key(k.kid, '_diagram')
     if (jawaban[kk]) return jawaban[kk]
@@ -1058,6 +1138,16 @@ function MultiRenderer({ a, jawaban, setJawaban, locked, revealed }: {
     const cur = getDiagram(k).map(r => [...r])
     if (cur[ri]) cur[ri][ci] = val
     setJawaban(prev => ({ ...prev, [key(k.kid, '_diagram')]: cur }))
+  }
+  const tambahBarisKompDiagram = (k: Komponen) => {
+    const cur = getDiagram(k).map(r => [...r])
+    const cols = k.kolom_diagram?.length || 2
+    setJawaban(prev => ({ ...prev, [key(k.kid, '_diagram')]: [...cur, Array(cols).fill('')] }))
+  }
+  const hapusBarisKompDiagram = (k: Komponen, ri: number) => {
+    const cur = getDiagram(k).map(r => [...r])
+    if (cur.length <= 1) return
+    setJawaban(prev => ({ ...prev, [key(k.kid, '_diagram')]: cur.filter((_, i) => i !== ri) }))
   }
   const buatGrafik = (k: Komponen) => {
     const data = getDiagram(k)
@@ -1088,7 +1178,7 @@ function MultiRenderer({ a, jawaban, setJawaban, locked, revealed }: {
           {/* ESAI */}
           {k.tipe === 'esai' && (
             <div>
-              {k.soal && <p className="text-sm font-semibold text-gray-800 mb-2 leading-relaxed">{k.soal}</p>}
+              {k.soal && <p className="text-sm font-semibold text-gray-800 mb-2 leading-relaxed whitespace-pre-line">{k.soal}</p>}
               <textarea disabled={locked} rows={5}
                 className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400 transition-all resize-none bg-white disabled:opacity-70 disabled:cursor-not-allowed"
                 placeholder="Tulis jawabanmu di sini..." value={jawaban[key(k.kid)] || ''}
@@ -1099,7 +1189,7 @@ function MultiRenderer({ a, jawaban, setJawaban, locked, revealed }: {
           {/* PILIHAN GANDA */}
           {k.tipe === 'pilihan_ganda' && (
             <div>
-              {k.soal && <p className="text-sm font-semibold text-gray-800 mb-3 leading-relaxed">{k.soal}</p>}
+              {k.soal && <p className="text-sm font-semibold text-gray-800 mb-3 leading-relaxed whitespace-pre-line">{k.soal}</p>}
               <div className="flex flex-col gap-2">
                 {(k.pilihan || []).map((p, pi) => {
                   const dipilih = jawaban[key(k.kid)] === pi
@@ -1124,39 +1214,72 @@ function MultiRenderer({ a, jawaban, setJawaban, locked, revealed }: {
           {/* TABEL */}
           {k.tipe === 'tabel' && (
             <div>
-              {k.soal && <p className="text-sm text-gray-700 mb-2">{k.soal}</p>}
-              <div className="overflow-x-auto rounded-xl border-2 border-gray-300">
+              {k.soal && <div className="mb-3"><BlokInstruksi teks={k.soal} variant="putih" /></div>}
+              <div className="overflow-auto rounded-xl border-2 border-gray-300 max-h-[460px]">
                 <table className="w-full text-sm border-collapse">
-                  <thead><tr className="bg-blue-950">{(k.kolom_tabel || []).map((kol, ci) => <th key={ci} className="text-left px-4 py-3 text-white text-[11px] font-semibold uppercase tracking-wide border-r border-blue-800 last:border-r-0">{kol}</th>)}</tr></thead>
-                  <tbody>{getTabel(k).map((row, ri) => (
-                    <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>
-                      {row.map((cell, ci) => {
-                        const terkunci = ci === 0 && (k.label_terkunci || [])[ri]
-                        return (
-                          <td key={ci} className="border border-gray-300 px-1 py-0.5 min-w-[120px]">
-                            {terkunci
-                              ? <div className="px-2 py-2 text-sm text-gray-700 font-medium bg-gray-50">{cell}</div>
-                              : <input disabled={locked} className="w-full px-2 py-2 text-sm text-gray-700 bg-transparent outline-none focus:bg-amber-50 rounded transition-all disabled:cursor-not-allowed" placeholder="—" value={cell} onChange={e => setTabel(k, ri, ci, e.target.value)} />}
-                          </td>
-                        )
-                      })}
+                  <thead>
+                    <tr>
+                      {(k.kolom_tabel || []).map((kol, ci) => <th key={ci} className="sticky top-0 z-10 bg-blue-950 text-left px-4 py-3 text-white text-[11px] font-semibold uppercase tracking-wide border-r border-blue-800 last:border-r-0">{kol}</th>)}
+                      {!locked && <th className="sticky top-0 z-10 bg-blue-950 w-10 border-l border-blue-800" />}
                     </tr>
-                  ))}</tbody>
+                  </thead>
+                  <tbody>{getTabel(k).map((row, ri) => {
+                    const jmlLabel = (k.label_terkunci || []).length
+                    return (
+                      <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>
+                        {row.map((cell, ci) => {
+                          const terkunci = ci === 0 && (k.label_terkunci || [])[ri]
+                          return (
+                            <td key={ci} className="border border-gray-300 px-1 py-0.5 min-w-[120px]">
+                              {terkunci
+                                ? <div className="px-2 py-2 text-sm text-gray-700 font-medium bg-gray-50">{cell}</div>
+                                : <input disabled={locked} className="w-full px-2 py-2 text-sm text-gray-700 bg-transparent outline-none focus:bg-amber-50 rounded transition-all disabled:cursor-not-allowed" placeholder="—" value={cell} onChange={e => setTabel(k, ri, ci, e.target.value)} />}
+                            </td>
+                          )
+                        })}
+                        {!locked && (
+                          <td className="border border-gray-300 text-center">
+                            <button type="button" title={ri < jmlLabel ? 'Baris tetap, tidak bisa dihapus' : 'Hapus baris'} disabled={ri < jmlLabel || getTabel(k).length <= 1} onClick={() => hapusBarisKompTabel(k, ri)} className="w-7 h-7 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-25 disabled:cursor-not-allowed text-xs transition-all">✕</button>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}</tbody>
                 </table>
               </div>
+              {!locked && (
+                <button type="button" onClick={() => tambahBarisKompTabel(k)} className="mt-2 w-full text-xs text-blue-600 hover:text-blue-800 font-medium border border-dashed border-blue-200 rounded-lg py-2 hover:bg-blue-50 transition-all">+ Tambah Baris</button>
+              )}
             </div>
           )}
 
           {/* DIAGRAM */}
           {k.tipe === 'diagram' && (
             <div>
-              {k.soal && <p className="text-sm text-gray-700 mb-2">{k.soal}</p>}
-              <div className="overflow-x-auto rounded-xl border-2 border-gray-300 mb-3">
+              {k.soal && <div className="mb-3"><BlokInstruksi teks={k.soal} variant="putih" /></div>}
+              <div className="overflow-auto rounded-xl border-2 border-gray-300 mb-2 max-h-[460px]">
                 <table className="w-full text-sm border-collapse">
-                  <thead><tr className="bg-blue-950">{(k.kolom_diagram || []).map((kol, ci) => <th key={ci} className="text-left px-4 py-3 text-white text-[11px] font-semibold uppercase tracking-wide border-r border-blue-800 last:border-r-0">{kol}</th>)}</tr></thead>
-                  <tbody>{getDiagram(k).map((row, ri) => (<tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>{row.map((cell, ci) => <td key={ci} className="border border-gray-300 px-1 py-0.5 min-w-[120px]"><input disabled={locked} className="w-full px-2 py-2 text-sm text-gray-700 bg-transparent outline-none focus:bg-amber-50 rounded transition-all disabled:cursor-not-allowed" placeholder="—" value={cell} onChange={e => setDiagram(k, ri, ci, e.target.value)} /></td>)}</tr>))}</tbody>
+                  <thead>
+                    <tr>
+                      {(k.kolom_diagram || []).map((kol, ci) => <th key={ci} className="sticky top-0 z-10 bg-blue-950 text-left px-4 py-3 text-white text-[11px] font-semibold uppercase tracking-wide border-r border-blue-800 last:border-r-0">{kol}</th>)}
+                      {!locked && <th className="sticky top-0 z-10 bg-blue-950 w-10 border-l border-blue-800" />}
+                    </tr>
+                  </thead>
+                  <tbody>{getDiagram(k).map((row, ri) => (
+                    <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>
+                      {row.map((cell, ci) => <td key={ci} className="border border-gray-300 px-1 py-0.5 min-w-[120px]"><input disabled={locked} className="w-full px-2 py-2 text-sm text-gray-700 bg-transparent outline-none focus:bg-amber-50 rounded transition-all disabled:cursor-not-allowed" placeholder="—" value={cell} onChange={e => setDiagram(k, ri, ci, e.target.value)} /></td>)}
+                      {!locked && (
+                        <td className="border border-gray-300 text-center">
+                          <button type="button" title="Hapus baris" disabled={getDiagram(k).length <= 1} onClick={() => hapusBarisKompDiagram(k, ri)} className="w-7 h-7 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-25 disabled:cursor-not-allowed text-xs transition-all">✕</button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}</tbody>
                 </table>
               </div>
+              {!locked && (
+                <button type="button" onClick={() => tambahBarisKompDiagram(k)} className="mb-3 w-full text-xs text-blue-600 hover:text-blue-800 font-medium border border-dashed border-blue-200 rounded-lg py-2 hover:bg-blue-50 transition-all">+ Tambah Baris</button>
+              )}
               {!locked && <button onClick={() => buatGrafik(k)} className="no-print text-xs bg-blue-950 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-900 transition-all">Buat Grafik</button>}
               <div className="mt-3 rounded-xl overflow-hidden" style={{ maxHeight: '220px' }}><canvas id={`chart-${key(k.kid)}`} /></div>
             </div>
@@ -1165,7 +1288,7 @@ function MultiRenderer({ a, jawaban, setJawaban, locked, revealed }: {
           {/* PAINT */}
           {k.tipe === 'paint' && (
             <div className="flex flex-col gap-2">
-              {k.paint_instruksi && <p className="text-sm text-gray-700">{k.paint_instruksi}</p>}
+              {k.paint_instruksi && <BlokInstruksi teks={k.paint_instruksi} variant="putih" />}
               <PaintCanvas a={{ ...a, paint_bg: k.paint_bg } as Aktivitas} value={jawaban[key(k.kid)] || ''} locked={locked}
                 onChange={v => setJawaban(prev => ({ ...prev, [key(k.kid)]: v }))} />
             </div>
@@ -1208,6 +1331,7 @@ export default function LkpdDetailPage() {
   const [generating, setGenerating] = useState(false)
   const [activeAktivitas, setActiveAktivitas] = useState<number>(0)
   const [fullscreenMapId, setFullscreenMapId] = useState<number | null>(null)
+  const [petaSplitFull, setPetaSplitFull] = useState(false)   // fullscreen peta split TANPA remount (anti-reset)
   const [petaTampil, setPetaTampil] = useState(true)          // toggle peta split-screen (laptop)
   const [petaMobileBuka, setPetaMobileBuka] = useState(false) // overlay peta di HP
   const [petaPernahDibuka, setPetaPernahDibuka] = useState(false)
@@ -1276,11 +1400,35 @@ export default function LkpdDetailPage() {
     return () => observer.disconnect()
   }, [lkpd, identitasSelesai])
 
+  // Keluar dari peta fullscreen (split) dengan tombol Escape
+  useEffect(() => {
+    if (!petaSplitFull) return
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setPetaSplitFull(false); setTimeout(() => window.dispatchEvent(new Event('resize')), 80) }
+    }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [petaSplitFull])
+
   const updateTabel = (id: number, row: number, col: number, val: string) => {
     setTabelData(prev => { const u = (prev[id] || []).map(r => [...r]); if (u[row]) u[row][col] = val; return { ...prev, [id]: u } })
   }
   const updateDiagram = (id: number, row: number, col: number, val: string) => {
     setDiagramData(prev => { const u = (prev[id] || []).map(r => [...r]); if (u[row]) u[row][col] = val; return { ...prev, [id]: u } })
+  }
+  const tambahBarisTabel = (a: Aktivitas) => {
+    const kolom = a.kolom_tabel?.length || 2
+    setTabelData(prev => ({ ...prev, [a.id]: [...(prev[a.id] || []), Array(kolom).fill('')] }))
+  }
+  const hapusBarisTabel = (id: number, row: number) => {
+    setTabelData(prev => { const cur = prev[id] || []; if (cur.length <= 1) return prev; return { ...prev, [id]: cur.filter((_, i) => i !== row) } })
+  }
+  const tambahBarisDiagram = (a: Aktivitas) => {
+    const kolom = a.kolom_diagram?.length || 2
+    setDiagramData(prev => ({ ...prev, [a.id]: [...(prev[a.id] || []), Array(kolom).fill('')] }))
+  }
+  const hapusBarisDiagram = (id: number, row: number) => {
+    setDiagramData(prev => { const cur = prev[id] || []; if (cur.length <= 1) return prev; return { ...prev, [id]: cur.filter((_, i) => i !== row) } })
   }
 
   const buatGrafik = (a: Aktivitas) => {
@@ -1361,12 +1509,27 @@ export default function LkpdDetailPage() {
           </div>
         </div>`
 
-      if (lkpd.bahan_bacaan) {
+      if (lkpd.bahan_bacaan || (lkpd.bahan_gambar && lkpd.bahan_gambar.length)) {
+        const gambarHtml = (lkpd.bahan_gambar || []).map((g, gi) => `<img src="${g}" alt="Gambar bahan bacaan ${gi + 1}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;margin-top:8px" />`).join('')
         container.innerHTML += `
           <div style="margin-bottom:20px;border:1px solid #dbeafe;border-radius:8px;overflow:hidden">
             <div style="background:#eff6ff;padding:10px 16px;font-size:11px;font-weight:700;color:#1d4ed8;letter-spacing:1px">BAHAN BACAAN</div>
-            <div style="padding:14px 16px;font-size:12px;color:#374151;line-height:1.7;white-space:pre-wrap">${lkpd.bahan_bacaan}</div>
+            <div style="padding:14px 16px;font-size:12px;color:#374151;line-height:1.7;white-space:pre-wrap">${lkpd.bahan_bacaan || ''}${gambarHtml}</div>
           </div>`
+      }
+
+      // Render instruksi/soal jadi HTML PDF: bernomor bila teks multi-baris/berpenanda.
+      // biru = Instruksi Teknis; abu (biru=false) = instruksi sub-aktivitas.
+      const instruksiHtml = (teks?: string, biru = true) => {
+        const baris = parseInstruksi(teks || '')
+        if (!baris.length) return ''
+        const warna = biru ? '#1e40af' : '#374151'
+        const bulat = biru ? '#2563eb' : '#475569'
+        return baris.map(b => {
+          if (b.jenis === 'nomor') return `<div style="display:flex;gap:6px;font-size:11px;color:${warna};margin-bottom:3px"><span style="flex-shrink:0;width:15px;height:15px;border-radius:50%;background:${bulat};color:white;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">${b.no}</span><span>${b.teks}</span></div>`
+          if (b.jenis === 'bullet') return `<div style="display:flex;gap:6px;font-size:11px;color:${warna};margin-bottom:3px"><span>•</span><span>${b.teks}</span></div>`
+          return `<div style="font-size:11px;color:${warna};margin-bottom:3px">${b.teks}</div>`
+        }).join('')
       }
 
       const aktivitasDivs = aktivitas.map((a, index) => {
@@ -1381,7 +1544,7 @@ export default function LkpdDetailPage() {
           jawabanHtml = `<div style="margin-top:8px"><div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:8px">${a.soal || ''}</div>${(a.pilihan || []).map((p, pi) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;border-radius:6px;border:1px solid ${jawabanVal === pi ? '#93c5fd' : '#e5e7eb'};background:${jawabanVal === pi ? '#eff6ff' : 'white'}"><div style="width:14px;height:14px;border-radius:50%;border:2px solid ${jawabanVal === pi ? '#1d4ed8' : '#d1d5db'};background:${jawabanVal === pi ? '#1d4ed8' : 'white'}"></div><span style="font-size:11px;color:#374151">${String.fromCharCode(65 + pi)}. ${p}${pi === a.jawaban_benar ? ' ✓' : ''}</span></div>`).join('')}</div>`
         } else if (a.tipe === 'tabel') {
           const tData = tabelData[a.id] || []
-          jawabanHtml = `<div style="margin-top:8px"><div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:6px">${a.soal || ''}</div><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#1e3a8a">${(a.kolom_tabel || []).map(k => `<th style="padding:8px 10px;color:white;font-weight:600;text-align:left;border:1px solid #1e3a8a">${k}</th>`).join('')}</tr></thead><tbody>${tData.map((row, ri) => `<tr style="background:${ri % 2 === 0 ? 'white' : '#f8fafc'}">${row.map(cell => `<td style="padding:7px 10px;border:1px solid #e2e8f0;color:#374151">${cell || '—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+          jawabanHtml = `<div style="margin-top:8px">${instruksiHtml(a.soal, false)}<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#1e3a8a">${(a.kolom_tabel || []).map(k => `<th style="padding:8px 10px;color:white;font-weight:600;text-align:left;border:1px solid #1e3a8a">${k}</th>`).join('')}</tr></thead><tbody>${tData.map((row, ri) => `<tr style="background:${ri % 2 === 0 ? 'white' : '#f8fafc'}">${row.map(cell => `<td style="padding:7px 10px;border:1px solid #e2e8f0;color:#374151">${cell || '—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
         } else if (a.tipe === 'tts') {
           const view = buildTtsView(a.tts_kata || [])
           const val: Record<string, string> = jawabanVal || {}
@@ -1410,7 +1573,7 @@ export default function LkpdDetailPage() {
           const val: Record<number, string> = jawabanVal || {}
           jawabanHtml = `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px"><thead><tr style="background:#1e3a8a"><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #1e3a8a">Item</th><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #1e3a8a">Kategori (Siswa)</th></tr></thead><tbody>${(a.kat_items || []).map((it, i) => { const pilih = val[i] || '—'; const ok = pilih !== '—' && samaKategori(pilih, it.kategori); return `<tr style="background:${ok ? '#f0fdf4' : pilih !== '—' ? '#fef2f2' : 'white'}"><td style="padding:6px 10px;border:1px solid #e2e8f0;color:#374151">${it.item}</td><td style="padding:6px 10px;border:1px solid #e2e8f0;color:${ok ? '#15803d' : '#dc2626'};font-weight:600">${pilih} ${pilih !== '—' ? (ok ? '✓' : '✗') : ''}</td></tr>` }).join('')}</tbody></table>`
         } else if (a.tipe === 'paint') {
-          jawabanHtml = `<div style="margin-top:8px">${a.paint_instruksi ? `<div style="font-size:11px;color:#374151;margin-bottom:6px">${a.paint_instruksi}</div>` : ''}${jawabanVal ? `<img src="${jawabanVal}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px" />` : '<div style="height:120px;border:2px dashed #d1d5db;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-style:italic">Belum ada gambar</div>'}</div>`
+          jawabanHtml = `<div style="margin-top:8px">${instruksiHtml(a.paint_instruksi, false)}${jawabanVal ? `<img src="${jawabanVal}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px" />` : '<div style="height:120px;border:2px dashed #d1d5db;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-style:italic">Belum ada gambar</div>'}</div>`
         } else if (a.tipe === 'peta') {
           const petaData = Array.isArray(jawabanVal) ? jawabanVal : []
           jawabanHtml = `<div style="margin-top:8px"><div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:12px"><div style="font-size:10px;font-weight:700;color:#0369a1;margin-bottom:8px;letter-spacing:1px">OBJEK DIBUAT DI APLIKASI (${petaData.length})</div>${petaData.length === 0 ? '<div style="font-size:11px;color:#94a3b8;font-style:italic">Belum ada objek</div>' : `<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#0369a1"><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #0369a1;width:30px">No</th><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #0369a1">Label</th><th style="padding:6px 10px;color:white;text-align:left;border:1px solid #0369a1">Tipe</th></tr></thead><tbody>${petaData.map((item: any, ii: number) => `<tr style="background:${ii % 2 === 0 ? 'white' : '#f0f9ff'}"><td style="padding:6px 10px;border:1px solid #bae6fd;color:#374151">${ii + 1}</td><td style="padding:6px 10px;border:1px solid #bae6fd;color:#374151;font-weight:600">${item.label}</td><td style="padding:6px 10px;border:1px solid #bae6fd;color:#64748b;text-transform:capitalize">${item.tipe}</td></tr>`).join('')}</tbody></table>`}</div>${a.peta_pertanyaan ? `<div style="margin-top:12px"><div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:6px">${a.peta_pertanyaan}</div><div style="min-height:70px;border:1px solid #d1d5db;border-radius:6px;padding:10px;font-size:11px;color:${jawaban[`${a.id}_analisis`] ? '#1e293b' : '#94a3b8'};background:#f9fafb">${jawaban[`${a.id}_analisis`] || 'Belum dijawab'}</div></div>` : ''}</div>`
@@ -1427,13 +1590,13 @@ export default function LkpdDetailPage() {
               inner = `${k.soal ? `<div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:8px">${k.soal}</div>` : ''}${(k.pilihan || []).map((p, pi) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;border-radius:6px;border:1px solid ${v === pi ? '#93c5fd' : '#e5e7eb'};background:${v === pi ? '#eff6ff' : 'white'}"><div style="width:14px;height:14px;border-radius:50%;border:2px solid ${v === pi ? '#1d4ed8' : '#d1d5db'};background:${v === pi ? '#1d4ed8' : 'white'}"></div><span style="font-size:11px;color:#374151">${String.fromCharCode(65 + pi)}. ${p}${pi === k.jawaban_benar ? ' ✓' : ''}</span></div>`).join('')}`
             } else if (k.tipe === 'tabel') {
               const tData = jawaban[`${kkey}_tabel`] || []
-              inner = `${k.soal ? `<div style="font-size:11px;color:#374151;margin-bottom:6px">${k.soal}</div>` : ''}<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#1e3a8a">${(k.kolom_tabel || []).map(kol => `<th style="padding:8px 10px;color:white;font-weight:600;text-align:left;border:1px solid #1e3a8a">${kol}</th>`).join('')}</tr></thead><tbody>${(tData.length ? tData : (k.label_terkunci || []).map((lbl: string) => [lbl])).map((row: string[], ri: number) => `<tr style="background:${ri % 2 === 0 ? 'white' : '#f8fafc'}">${(k.kolom_tabel || []).map((_, ci) => `<td style="padding:7px 10px;border:1px solid #e2e8f0;color:#374151">${(row && row[ci]) || '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+              inner = `${instruksiHtml(k.soal, false)}<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#1e3a8a">${(k.kolom_tabel || []).map(kol => `<th style="padding:8px 10px;color:white;font-weight:600;text-align:left;border:1px solid #1e3a8a">${kol}</th>`).join('')}</tr></thead><tbody>${(tData.length ? tData : (k.label_terkunci || []).map((lbl: string) => [lbl])).map((row: string[], ri: number) => `<tr style="background:${ri % 2 === 0 ? 'white' : '#f8fafc'}">${(k.kolom_tabel || []).map((_, ci) => `<td style="padding:7px 10px;border:1px solid #e2e8f0;color:#374151">${(row && row[ci]) || '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`
             } else if (k.tipe === 'diagram') {
               const dData = jawaban[`${kkey}_diagram`] || []
-              inner = `${k.soal ? `<div style="font-size:11px;color:#374151;margin-bottom:6px">${k.soal}</div>` : ''}<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#1e3a8a">${(k.kolom_diagram || []).map(kol => `<th style="padding:8px 10px;color:white;font-weight:600;text-align:left;border:1px solid #1e3a8a">${kol}</th>`).join('')}</tr></thead><tbody>${dData.map((row: string[], ri: number) => `<tr style="background:${ri % 2 === 0 ? 'white' : '#f8fafc'}">${row.map(cell => `<td style="padding:7px 10px;border:1px solid #e2e8f0;color:#374151">${cell || '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+              inner = `${instruksiHtml(k.soal, false)}<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#1e3a8a">${(k.kolom_diagram || []).map(kol => `<th style="padding:8px 10px;color:white;font-weight:600;text-align:left;border:1px solid #1e3a8a">${kol}</th>`).join('')}</tr></thead><tbody>${dData.map((row: string[], ri: number) => `<tr style="background:${ri % 2 === 0 ? 'white' : '#f8fafc'}">${row.map(cell => `<td style="padding:7px 10px;border:1px solid #e2e8f0;color:#374151">${cell || '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`
             } else if (k.tipe === 'paint') {
               const v = jawaban[kkey]
-              inner = `${k.paint_instruksi ? `<div style="font-size:11px;color:#374151;margin-bottom:6px">${k.paint_instruksi}</div>` : ''}${v ? `<img src="${v}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px" />` : '<div style="height:120px;border:2px dashed #d1d5db;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-style:italic">Belum ada gambar</div>'}`
+              inner = `${instruksiHtml(k.paint_instruksi, false)}${v ? `<img src="${v}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px" />` : '<div style="height:120px;border:2px dashed #d1d5db;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-style:italic">Belum ada gambar</div>'}`
             } else if (k.tipe === 'peta') {
               const pd = jawaban[`${kkey}_peta`]
               const petaData = Array.isArray(pd) ? pd : []
@@ -1447,7 +1610,7 @@ export default function LkpdDetailPage() {
 
         const sdlKode = (a.kode_sdl || '').split(',').map(s => s.trim()).filter(Boolean)
         const sdlBadge = sdlKode.length ? `<div style="display:flex;gap:4px">${sdlKode.map(kd => `<div style="background:${SDL_BG[kd] || '#f1f5f9'};color:${SDL_TXT[kd] || '#64748b'};padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700">${kd}</div>`).join('')}</div>` : ''
-        return `<div style="margin-bottom:20px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;page-break-inside:avoid"><div style="background:#1e3a8a;padding:12px 16px;display:flex;align-items:center;justify-content:space-between"><div style="display:flex;align-items:center;gap:10px"><div style="background:rgba(255,255,255,0.15);width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:800">${index + 1}</div><div><div style="color:white;font-size:13px;font-weight:700">${a.judul}</div><div style="color:rgba(255,255,255,0.6);font-size:10px;text-transform:capitalize">${a.tipe.replace('_', ' ')}${a.fase ? ' · ' + a.fase : ''}</div></div></div>${sdlBadge}</div><div style="padding:14px 16px;background:#eff6ff;border-bottom:1px solid #dbeafe"><div style="font-size:9px;font-weight:700;color:#1d4ed8;letter-spacing:1px;margin-bottom:3px">INSTRUKSI</div>${(() => { const { steps, bernomor } = parseLangkah(a.instruksi); if (bernomor && steps.length > 1) return `<ol style="margin:0;padding-left:0;list-style:none">${steps.map((s, si) => `<li style="display:flex;gap:6px;font-size:11px;color:#1e40af;margin-bottom:3px"><span style="flex-shrink:0;width:15px;height:15px;border-radius:50%;background:#2563eb;color:white;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center">${si + 1}</span><span>${s}</span></li>`).join('')}</ol>`; return `<div style="font-size:11px;color:#1e40af">${a.instruksi}</div>` })()}</div><div style="padding:14px 16px">${jawabanHtml}</div></div>`
+        return `<div style="margin-bottom:20px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;page-break-inside:avoid"><div style="background:#1e3a8a;padding:12px 16px;display:flex;align-items:center;justify-content:space-between"><div style="display:flex;align-items:center;gap:10px"><div style="background:rgba(255,255,255,0.15);width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:800">${index + 1}</div><div><div style="color:white;font-size:13px;font-weight:700">${a.judul}</div><div style="color:rgba(255,255,255,0.6);font-size:10px;text-transform:capitalize">${a.tipe.replace('_', ' ')}${a.fase ? ' · ' + a.fase : ''}</div></div></div>${sdlBadge}</div><div style="padding:14px 16px;background:#eff6ff;border-bottom:1px solid #dbeafe"><div style="font-size:9px;font-weight:700;color:#1d4ed8;letter-spacing:1px;margin-bottom:3px">INSTRUKSI</div>${instruksiHtml(a.instruksi, true)}</div><div style="padding:14px 16px">${jawabanHtml}</div></div>`
       }).join('')
 
       container.innerHTML += `<div>${aktivitasDivs}</div>`
@@ -1744,8 +1907,8 @@ export default function LkpdDetailPage() {
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
 
-                {/* Bahan Bacaan — awal Fase Memahami, tampil terformat */}
-                {fase === 'Memahami' && lkpd.bahan_bacaan && (
+                {/* Bahan Bacaan — awal Fase Memahami, tampil terformat + gambar pendukung */}
+                {fase === 'Memahami' && (lkpd.bahan_bacaan || (lkpd.bahan_gambar?.length ?? 0) > 0) && (
                   <div className="bg-white border border-blue-100 rounded-2xl overflow-hidden mb-5 shadow-sm">
                     <div className="bg-gradient-to-r from-blue-600 to-blue-500 px-5 py-3.5 flex items-center gap-2.5">
                       <span className="text-lg">📚</span>
@@ -1754,7 +1917,17 @@ export default function LkpdDetailPage() {
                         <p className="text-[10px] text-blue-100">Baca dengan teliti — semua jawaban aktivitas ada di sini</p>
                       </div>
                     </div>
-                    <BahanBacaan text={lkpd.bahan_bacaan} />
+                    {lkpd.bahan_bacaan && <BahanBacaan text={lkpd.bahan_bacaan} />}
+                    {(lkpd.bahan_gambar?.length ?? 0) > 0 && (
+                      <div className={`px-6 pb-5 flex flex-col gap-3 ${lkpd.bahan_bacaan ? 'pt-0' : 'pt-5'}`}>
+                        {lkpd.bahan_gambar!.map((g, gi) => (
+                          <figure key={gi} className="flex flex-col gap-1">
+                            <img src={g} alt={`Gambar bahan bacaan ${gi + 1}`} className="w-full rounded-xl border border-gray-200" />
+                            <figcaption className="text-[10px] text-gray-400 text-center">Gambar {gi + 1}</figcaption>
+                          </figure>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1779,22 +1952,8 @@ export default function LkpdDetailPage() {
                       </div>
 
                       <div className="px-6 py-5">
-                        <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-5">
-                          <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wide mb-1.5">Instruksi</p>
-                          {(() => {
-                            const { steps, bernomor } = parseLangkah(a.instruksi)
-                            if (bernomor && steps.length > 1) return (
-                              <ol className="flex flex-col gap-1.5">
-                                {steps.map((s, si) => (
-                                  <li key={si} className="flex gap-2 text-sm text-blue-800 leading-relaxed">
-                                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center mt-0.5">{si + 1}</span>
-                                    <span className="flex-1">{s}</span>
-                                  </li>
-                                ))}
-                              </ol>
-                            )
-                            return <p className="text-sm text-blue-800 leading-relaxed">{a.instruksi}</p>
-                          })()}
+                        <div className="mb-5">
+                          <BlokInstruksi teks={a.instruksi} variant="biru" judul="Instruksi" />
                         </div>
 
                         {(a.literasi_bencana || a.literasi_spasial) && (
@@ -1816,7 +1975,7 @@ export default function LkpdDetailPage() {
                           </div>
                         )}
 
-                        {a.soal && a.tipe !== 'tts' && <p className="text-sm font-semibold text-gray-800 mb-3 leading-relaxed">{a.soal}</p>}
+                        {a.soal && a.tipe !== 'tts' && <p className="text-sm font-semibold text-gray-800 mb-3 leading-relaxed whitespace-pre-line">{a.soal}</p>}
 
                         {/* ESAI */}
                         {a.tipe === 'esai' && (
@@ -1848,23 +2007,59 @@ export default function LkpdDetailPage() {
 
                         {/* TABEL */}
                         {a.tipe === 'tabel' && (
-                          <div className="overflow-x-auto rounded-xl border-2 border-gray-300">
-                            <table className="w-full text-sm border-collapse">
-                              <thead><tr className="bg-blue-950">{a.kolom_tabel?.map((k: string, ki: number) => <th key={ki} className="text-left px-4 py-3 text-white text-[11px] font-semibold uppercase tracking-wide border-r border-blue-800 last:border-r-0">{k}</th>)}</tr></thead>
-                              <tbody>{tabelData[a.id]?.map((row, ri) => (<tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>{row.map((cell, ci) => <td key={ci} className="border border-gray-300 px-1 py-0.5 min-w-[120px]"><input disabled={locked} className="w-full px-2 py-2 text-sm text-gray-700 bg-transparent outline-none focus:bg-amber-50 rounded transition-all disabled:cursor-not-allowed" placeholder="—" value={cell} onChange={e => updateTabel(a.id, ri, ci, e.target.value)} /></td>)}</tr>))}</tbody>
-                            </table>
+                          <div>
+                            <div className="overflow-auto rounded-xl border-2 border-gray-300 max-h-[460px]">
+                              <table className="w-full text-sm border-collapse">
+                                <thead>
+                                  <tr>
+                                    {a.kolom_tabel?.map((k: string, ki: number) => <th key={ki} className="sticky top-0 z-10 bg-blue-950 text-left px-4 py-3 text-white text-[11px] font-semibold uppercase tracking-wide border-r border-blue-800 last:border-r-0">{k}</th>)}
+                                    {!locked && <th className="sticky top-0 z-10 bg-blue-950 w-10 border-l border-blue-800" />}
+                                  </tr>
+                                </thead>
+                                <tbody>{(tabelData[a.id] || []).map((row, ri) => (
+                                  <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>
+                                    {row.map((cell, ci) => <td key={ci} className="border border-gray-300 px-1 py-0.5 min-w-[120px]"><input disabled={locked} className="w-full px-2 py-2 text-sm text-gray-700 bg-transparent outline-none focus:bg-amber-50 rounded transition-all disabled:cursor-not-allowed" placeholder="—" value={cell} onChange={e => updateTabel(a.id, ri, ci, e.target.value)} /></td>)}
+                                    {!locked && (
+                                      <td className="border border-gray-300 text-center">
+                                        <button type="button" title="Hapus baris" disabled={(tabelData[a.id] || []).length <= 1} onClick={() => hapusBarisTabel(a.id, ri)} className="w-7 h-7 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed text-xs transition-all">✕</button>
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}</tbody>
+                              </table>
+                            </div>
+                            {!locked && (
+                              <button type="button" onClick={() => tambahBarisTabel(a)} className="mt-2 w-full text-xs text-blue-600 hover:text-blue-800 font-medium border border-dashed border-blue-200 rounded-lg py-2 hover:bg-blue-50 transition-all">+ Tambah Baris</button>
+                            )}
                           </div>
                         )}
 
                         {/* DIAGRAM */}
                         {a.tipe === 'diagram' && (
                           <div>
-                            <div className="overflow-x-auto rounded-xl border-2 border-gray-300 mb-3">
+                            <div className="overflow-auto rounded-xl border-2 border-gray-300 mb-2 max-h-[460px]">
                               <table className="w-full text-sm border-collapse">
-                                <thead><tr className="bg-blue-950">{a.kolom_diagram?.map((k: string, ki: number) => <th key={ki} className="text-left px-4 py-3 text-white text-[11px] font-semibold uppercase tracking-wide border-r border-blue-800 last:border-r-0">{k}</th>)}</tr></thead>
-                                <tbody>{diagramData[a.id]?.map((row, ri) => (<tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>{row.map((cell, ci) => <td key={ci} className="border border-gray-300 px-1 py-0.5 min-w-[120px]"><input disabled={locked} className="w-full px-2 py-2 text-sm text-gray-700 bg-transparent outline-none focus:bg-amber-50 rounded transition-all disabled:cursor-not-allowed" placeholder="—" value={cell} onChange={e => updateDiagram(a.id, ri, ci, e.target.value)} /></td>)}</tr>))}</tbody>
+                                <thead>
+                                  <tr>
+                                    {a.kolom_diagram?.map((k: string, ki: number) => <th key={ki} className="sticky top-0 z-10 bg-blue-950 text-left px-4 py-3 text-white text-[11px] font-semibold uppercase tracking-wide border-r border-blue-800 last:border-r-0">{k}</th>)}
+                                    {!locked && <th className="sticky top-0 z-10 bg-blue-950 w-10 border-l border-blue-800" />}
+                                  </tr>
+                                </thead>
+                                <tbody>{(diagramData[a.id] || []).map((row, ri) => (
+                                  <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>
+                                    {row.map((cell, ci) => <td key={ci} className="border border-gray-300 px-1 py-0.5 min-w-[120px]"><input disabled={locked} className="w-full px-2 py-2 text-sm text-gray-700 bg-transparent outline-none focus:bg-amber-50 rounded transition-all disabled:cursor-not-allowed" placeholder="—" value={cell} onChange={e => updateDiagram(a.id, ri, ci, e.target.value)} /></td>)}
+                                    {!locked && (
+                                      <td className="border border-gray-300 text-center">
+                                        <button type="button" title="Hapus baris" disabled={(diagramData[a.id] || []).length <= 1} onClick={() => hapusBarisDiagram(a.id, ri)} className="w-7 h-7 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed text-xs transition-all">✕</button>
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}</tbody>
                               </table>
                             </div>
+                            {!locked && (
+                              <button type="button" onClick={() => tambahBarisDiagram(a)} className="mb-3 w-full text-xs text-blue-600 hover:text-blue-800 font-medium border border-dashed border-blue-200 rounded-lg py-2 hover:bg-blue-50 transition-all">+ Tambah Baris</button>
+                            )}
                             {!locked && <button onClick={() => buatGrafik(a)} className="no-print text-xs bg-blue-950 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-900 transition-all">Buat Grafik</button>}
                             <div className="mt-3 rounded-xl overflow-hidden" style={{ maxHeight: '200px' }}><canvas id={`chart-${a.id}`} /></div>
                           </div>
@@ -1886,7 +2081,7 @@ export default function LkpdDetailPage() {
                         {a.tipe === 'tts' && <TtsPlayer a={a} value={jawaban[a.id] || {}} revealed={revealed} locked={locked} onChange={v => setJawaban({ ...jawaban, [a.id]: v })} />}
                         {a.tipe === 'matching' && <MatchingPlayer a={a} value={jawaban[a.id] || {}} revealed={revealed} locked={locked} onChange={v => setJawaban({ ...jawaban, [a.id]: v })} />}
                         {a.tipe === 'kategorisasi' && <KategorisasiPlayer a={a} value={jawaban[a.id] || {}} revealed={revealed} locked={locked} onChange={v => setJawaban({ ...jawaban, [a.id]: v })} />}
-                        {a.tipe === 'paint' && (<div className="flex flex-col gap-2">{a.paint_instruksi && <p className="text-sm text-gray-700">{a.paint_instruksi}</p>}<PaintCanvas a={a} value={jawaban[a.id] || ''} locked={locked} onChange={v => setJawaban({ ...jawaban, [a.id]: v })} /></div>)}
+                        {a.tipe === 'paint' && (<div className="flex flex-col gap-2">{a.paint_instruksi && <BlokInstruksi teks={a.paint_instruksi} variant="putih" />}<PaintCanvas a={a} value={jawaban[a.id] || ''} locked={locked} onChange={v => setJawaban({ ...jawaban, [a.id]: v })} /></div>)}
                         {a.tipe === 'multi' && <MultiRenderer a={a} jawaban={jawaban} setJawaban={updater => setJawaban(updater)} locked={locked} revealed={revealed} />}
 
                         {/* Skor per aktivitas — hanya setelah fase dikunci */}
@@ -2035,19 +2230,35 @@ export default function LkpdDetailPage() {
           </div>
         </div>
 
-        {/* Panel Peta (kanan, sticky) — hanya laptop, saat fase Mengaplikasi */}
+        {/* Panel Peta (kanan, sticky) — hanya laptop, saat fase Mengaplikasi.
+            Saat "Perbesar", panel yang SAMA di-fullscreen-kan lewat CSS (bukan bikin
+            instance peta baru), jadi layer & posisi peta yang sudah diinput tidak ter-reset. */}
         {petaAktif && (
-          <div className="no-print hidden lg:block flex-1 min-w-0 border-l border-gray-200 bg-white">
-            <div className="sticky top-[7.5rem] h-[calc(100vh-7.5rem)] flex flex-col">
+          <div className={petaSplitFull
+            ? 'no-print fixed inset-0 z-[9999] bg-white flex flex-col'
+            : 'no-print hidden lg:block flex-1 min-w-0 border-l border-gray-200 bg-white'}>
+            <div className={petaSplitFull
+              ? 'flex flex-col h-full'
+              : 'sticky top-[7.5rem] h-[calc(100vh-7.5rem)] flex flex-col'}>
               <div className="flex items-center justify-between px-4 py-2 bg-blue-950 flex-shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <svg className="w-4 h-4 text-blue-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" /></svg>
                   <p className="text-white text-xs font-semibold truncate">Peta WebGIS Lampung Edu Gisaster</p>
                 </div>
-                <button onClick={() => setFullscreenMapId(-1)} title="Perbesar peta"
+                <button onClick={() => { setPetaSplitFull(v => !v); setTimeout(() => window.dispatchEvent(new Event('resize')), 80) }}
+                  title={petaSplitFull ? 'Perkecil peta' : 'Perbesar peta'}
                   className="flex items-center gap-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-medium px-2 py-1 rounded-md transition-all flex-shrink-0">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
-                  Perbesar
+                  {petaSplitFull ? (
+                    <>
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M15 9h4.5M15 9V4.5M15 9l5.25-5.25M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
+                      Perkecil
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
+                      Perbesar
+                    </>
+                  )}
                 </button>
               </div>
               <div className="flex-1 min-h-0" style={{ isolation: 'isolate' }}>

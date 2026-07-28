@@ -30,3 +30,135 @@ body {
 .prose em { font-style: italic; }
 .prose a { color: #3B82F6; text-decoration: underline; }
 .prose img { max-width: 100%; border-radius: 8px; margin: 0.5rem 0; }
+
+/* ════════════════════════════════════════════════════════════ */
+/* POPUP TABLE STYLING - Leaflet Popup (Kolom Format) */
+/* ════════════════════════════════════════════════════════════ */
+
+.leaflet-popup-table.leaflet-popup {
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  border: 1px solid #cbd5e0;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+.leaflet-popup-table .leaflet-popup-content-wrapper {
+  background: white !important;
+  border-radius: 8px !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1) !important;
+  padding: 0 !important;
+  border: 1px solid #e2e8f0;
+}
+
+.leaflet-popup-table .leaflet-popup-content {
+  margin: 0 !important;
+  padding: 8px 10px !important;
+  width: auto;
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.leaflet-popup-table .leaflet-popup-tip {
+  background: white !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.leaflet-popup-table .leaflet-popup-close-button {
+  top: 4px !important;
+  right: 4px !important;
+  width: 22px !important;
+  height: 22px !important;
+  background: #f1f5f9 !important;
+  border-radius: 3px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  line-height: 1;
+  transition: all 0.2s ease;
+  color: #94a3af !important;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+.leaflet-popup-table .leaflet-popup-close-button:hover {
+  background: #fee2e2 !important;
+  color: #dc2626 !important;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.2);
+}
+
+.leaflet-popup-table .leaflet-popup-close-button:active {
+  transform: scale(0.9);
+}
+
+.leaflet-popup-table .leaflet-popup-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.leaflet-popup-table .leaflet-popup-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.leaflet-popup-table .leaflet-popup-content::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 2px;
+}
+
+.leaflet-popup-table .leaflet-popup-content::-webkit-scrollbar-thumb:hover {
+  background: #94a3af;
+}
+
+.leaflet-popup-table .leaflet-popup-content {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 transparent;
+}
+
+.leaflet-popup-table.leaflet-zoom-anim {
+  animation: tablePopupIn 0.2s ease-out;
+}
+
+@keyframes tablePopupIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 600px) {
+  .leaflet-popup-table {
+    width: auto !important;
+  }
+
+  .leaflet-popup-table .leaflet-popup-content-wrapper {
+    max-width: calc(100vw - 30px) !important;
+  }
+
+  .leaflet-popup-table .leaflet-popup-close-button {
+    top: 2px !important;
+    right: 2px !important;
+    width: 20px !important;
+    height: 20px !important;
+    font-size: 12px;
+  }
+}
+
+.leaflet-popup-table .leaflet-popup-content-wrapper {
+  max-width: 100%;
+}
+
+/* ════════════════════════════════════════════════════════════ */
+/* CAROUSEL - Progress Bar Animation                          */
+/* ════════════════════════════════════════════════════════════ */
+
+@keyframes progressBar {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}

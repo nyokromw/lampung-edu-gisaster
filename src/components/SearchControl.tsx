@@ -6,6 +6,7 @@ import L from 'leaflet'
 interface Props {
   map: L.Map | null
   layers?: any[]  // LayerState[] dari Map.tsx — untuk pencarian fitur lokal
+  onLocationFound?: (lat: number, lng: number) => void  // Callback saat lokasi ditemukan → trigger popup layer aktif
 }
 
 interface LocalResult {
@@ -48,7 +49,7 @@ function shortName(display_name: string) {
   return display_name.split(', ').slice(0, 2).join(', ')
 }
 
-export default function SearchControl({ map, layers = [] }: Props) {
+export default function SearchControl({ map, layers = [], onLocationFound }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<NominatimResult[]>([])
   const [localResults, setLocalResults] = useState<LocalResult[]>([])
@@ -145,17 +146,20 @@ export default function SearchControl({ map, layers = [] }: Props) {
   const handleSelectLocal = (r: LocalResult) => {
     if (!map) return
     if (markerRef.current) map.removeLayer(markerRef.current)
-    markerRef.current = L.marker([r.lat, r.lng], {
+    const marker = L.marker([r.lat, r.lng], {
       icon: L.divIcon({
         html: `<div style="background:#059669;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.4)"></div>`,
         className: '', iconSize: [12, 12], iconAnchor: [6, 6]
       })
     }).addTo(map)
       .bindPopup(`<div style="font-family:system-ui;font-size:12px"><b>${r.nama}</b><br/><span style="color:#666;font-size:11px">${r.layerNama}</span></div>`)
-      .openPopup()
+    markerRef.current = marker
+    // Buka popup marker hanya jika TIDAK ada layer aktif (biar popup layer yang tampil)
+    if (layers.length === 0) marker.openPopup()
     map.setView([r.lat, r.lng], 16)
     setQuery(r.nama)
     setShowResults(false)
+    onLocationFound?.(r.lat, r.lng)  // Trigger popup layer aktif di titik ini
   }
 
   const search = async (q: string) => {
@@ -215,33 +219,37 @@ export default function SearchControl({ map, layers = [] }: Props) {
   const goToCoordinate = (lat: number, lon: number) => {
     if (!map) return
     if (markerRef.current) map.removeLayer(markerRef.current)
-    markerRef.current = L.marker([lat, lon], {
+    const marker = L.marker([lat, lon], {
       icon: L.divIcon({
         html: `<div style="background:#dc2626;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.4)"></div>`,
         className: '', iconSize: [12, 12], iconAnchor: [6, 6]
       })
     }).addTo(map)
       .bindPopup(`<div style="font-family:system-ui;font-size:12px"><b>Koordinat</b><br/><span style="color:#666;font-size:11px">Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}</span></div>`)
-      .openPopup()
+    markerRef.current = marker
+    if (layers.length === 0) marker.openPopup()
     map.setView([lat, lon], 17)
     setShowResults(false)
+    onLocationFound?.(lat, lon)  // Trigger popup layer aktif di titik ini
   }
 
   const handleSelect = (r: NominatimResult) => {
     if (!map) return
     const lat = parseFloat(r.lat), lon = parseFloat(r.lon)
     if (markerRef.current) map.removeLayer(markerRef.current)
-    markerRef.current = L.marker([lat, lon], {
+    const marker = L.marker([lat, lon], {
       icon: L.divIcon({
         html: `<div style="background:#1d4ed8;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.4)"></div>`,
         className: '', iconSize: [12, 12], iconAnchor: [6, 6]
       })
     }).addTo(map)
       .bindPopup(`<div style="font-family:system-ui;font-size:12px;max-width:220px"><b>${shortName(r.display_name)}</b><br/><span style="color:#666;font-size:11px">${r.display_name}</span></div>`)
-      .openPopup()
+    markerRef.current = marker
+    if (layers.length === 0) marker.openPopup()
     map.setView([lat, lon], 17)
     setQuery(shortName(r.display_name))
     setShowResults(false)
+    onLocationFound?.(lat, lon)  // Trigger popup layer aktif di titik ini
   }
 
   const handleClear = () => {

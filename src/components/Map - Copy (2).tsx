@@ -2205,20 +2205,7 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
 
       {/* ── SEARCH — pojok kanan atas ── */}
       <div className="absolute top-3 right-3 z-[1001] w-[260px]">
-        <SearchControl 
-          map={mapRef.current} 
-          layers={layers}
-          onLocationFound={(lat: number, lng: number) => {
-            // Setelah lokasi ditemukan, trigger popup layer aktif di titik tersebut
-            if (mapRef.current && layers.length > 0) {
-              const latlng = L.latLng(lat, lng)
-              // Delay sedikit agar map selesai pan/zoom ke lokasi dulu
-              setTimeout(() => {
-                if (!toolActiveRef.current) handleLayerClick(latlng)
-              }, 400)
-            }
-          }}
-        />
+        <SearchControl map={mapRef.current} layers={layers} />
       </div>
 
       {/* ── LEGENDA READ-ONLY (kartu mengambang kanan bawah, DI ATAS tombol zoom) ── */}
