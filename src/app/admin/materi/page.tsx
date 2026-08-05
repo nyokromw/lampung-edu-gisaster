@@ -1,17 +1,23 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+
+const BUCKET = 'pembelajaran-assets'
+const FOLDER = 'materi'
 
 interface JenisBencana { id: number; nama: string }
 
 type Blok =
   | { id: string; tipe: 'teks'; isi: string }
-  | { id: string; tipe: 'gambar'; url: string; caption: string }
+  | { id: string; tipe: 'gambar'; url: string; caption: string; sumberGambar: 'link' | 'upload'; storagePath?: string }
   | { id: string; tipe: 'video'; youtubeUrl: string }
   | { id: string; tipe: 'html'; kode: string }
 
-interface Kuis { pertanyaan: string; pilihan: string[]; jawaban_benar: number; pembahasan: string }
+interface Kuis {
+  pertanyaan: string; pilihan: string[]; jawaban_benar: number; pembahasan: string
+  gambar_url?: string; gambar_storage_path?: string
+}
 interface Segmen { id: string; judul: string; blok: Blok[]; kuis: Kuis | null }
 
 interface MateriItem {
@@ -22,11 +28,25 @@ interface MateriItem {
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
-// Ambil ID video dari berbagai bentuk URL YouTube
 function ytId(url: string): string | null {
   if (!url) return null
   const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/)
   return m ? m[1] : (url.length === 11 ? url : null)
+}
+
+// ── Upload helper ──
+async function uploadGambar(file: File): Promise<{ url: string; path: string } | null> {
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
+  const fileName = `${FOLDER}/${Date.now()}_${uid()}.${ext}`
+  const { error } = await supabase.storage.from(BUCKET).upload(fileName, file, { upsert: false })
+  if (error) { alert('Upload gagal: ' + error.message); return null }
+  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(fileName)
+  return { url: pub.publicUrl, path: fileName }
+}
+
+async function hapusGambarStorage(path: string) {
+  if (!path) return
+  await supabase.storage.from(BUCKET).remove([path])
 }
 
 const blokMeta: Record<Blok['tipe'], { label: string; warna: string; ikon: string }> = {
@@ -36,13 +56,82 @@ const blokMeta: Record<Blok['tipe'], { label: string; warna: string; ikon: strin
   html: { label: 'Embed HTML', warna: 'bg-purple-50 text-purple-700 border-purple-200', ikon: '</>' },
 }
 
-// ── Editor per blok (komponen terpisah agar input tidak kehilangan fokus) ──
+// ── Komponen upload gambar (reusable) ──
+function GambarUploader({ url, storagePath, onUploaded, onRemove, label }: {
+  url?: string; storagePath?: string
+  onUploaded: (url: string, path: string) => void
+  onRemove: () => void
+  label?: string
+}) {
+  const [uploading, setUploading] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) { alert('File harus berupa gambar (JPG, PNG, GIF, WebP).'); return }
+    if (file.size > 10 * 1024 * 1024) { alert('Ukuran file maksimum 10 MB.'); return }
+    setUploading(true)
+    // Hapus file lama kalau ada (ganti gambar)
+    if (storagePath) await hapusGambarStorage(storagePath)
+    const result = await uploadGambar(file)
+    if (result) onUploaded(result.url, result.path)
+    setUploading(false)
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  const handleRemove = async () => {
+    if (storagePath) await hapusGambarStorage(storagePath)
+    onRemove()
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {label && <p className="text-[11px] font-medium text-gray-500">{label}</p>}
+      {url ? (
+        <div className="relative group">
+          <img src={url} alt="" className="max-h-44 rounded-lg border border-gray-100 object-contain bg-gray-50" />
+          <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={() => inputRef.current?.click()} title="Ganti gambar"
+              className="w-7 h-7 rounded-lg bg-white/90 border border-gray-200 shadow-sm flex items-center justify-center text-xs hover:bg-blue-50 hover:border-blue-300 text-blue-600">⟳</button>
+            <button onClick={handleRemove} title="Hapus gambar"
+              className="w-7 h-7 rounded-lg bg-white/90 border border-gray-200 shadow-sm flex items-center justify-center text-xs hover:bg-red-50 hover:border-red-300 text-red-500">✕</button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="border-2 border-dashed border-gray-200 rounded-xl p-5 text-center hover:border-teal-300 hover:bg-teal-50/30 transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {uploading
+            ? <span className="text-sm text-teal-600 font-medium animate-pulse">Mengupload...</span>
+            : (
+              <span className="flex flex-col items-center gap-1">
+                <span className="text-2xl">📁</span>
+                <span className="text-sm text-gray-500">Klik untuk upload gambar</span>
+                <span className="text-[10px] text-gray-400">JPG, PNG, GIF, WebP — maks 10 MB</span>
+              </span>
+            )}
+        </button>
+      )}
+      <input ref={inputRef} type="file" accept="image/*" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+    </div>
+  )
+}
+
+// ── Editor per blok ──
 function BlokEditor({ blok, onChange, onHapus, onNaik, onTurun, bisaNaik, bisaTurun }: {
   blok: Blok; onChange: (b: Blok) => void; onHapus: () => void
   onNaik: () => void; onTurun: () => void; bisaNaik: boolean; bisaTurun: boolean
 }) {
   const meta = blokMeta[blok.tipe]
   const ta = "border border-gray-200 bg-white p-2.5 rounded-lg w-full text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+
+  // Tab state untuk blok gambar: 'upload' atau 'link'
+  const [tabGambar, setTabGambar] = useState<'upload' | 'link'>(
+    blok.tipe === 'gambar' ? (blok.sumberGambar || (blok.storagePath ? 'upload' : 'link')) : 'upload'
+  )
+
   return (
     <div className="border border-gray-200 rounded-xl bg-white">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
@@ -60,15 +149,45 @@ function BlokEditor({ blok, onChange, onHapus, onNaik, onTurun, bisaNaik, bisaTu
           <textarea className={ta} rows={4} placeholder="Tulis teks materi..."
             value={blok.isi} onChange={e => onChange({ ...blok, isi: e.target.value })} />
         )}
+
         {blok.tipe === 'gambar' && (
-          <div className="flex flex-col gap-2">
-            <input className={ta} placeholder="URL gambar (https://...)"
-              value={blok.url} onChange={e => onChange({ ...blok, url: e.target.value })} />
+          <div className="flex flex-col gap-3">
+            {/* Tab selector */}
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 self-start">
+              <button onClick={() => setTabGambar('upload')}
+                className={`text-[11px] font-medium px-3 py-1.5 rounded-md transition-colors ${tabGambar === 'upload' ? 'bg-white shadow-sm text-teal-700' : 'text-gray-500 hover:text-gray-700'}`}>
+                📁 Upload File
+              </button>
+              <button onClick={() => setTabGambar('link')}
+                className={`text-[11px] font-medium px-3 py-1.5 rounded-md transition-colors ${tabGambar === 'link' ? 'bg-white shadow-sm text-teal-700' : 'text-gray-500 hover:text-gray-700'}`}>
+                🔗 Link URL
+              </button>
+            </div>
+
+            {tabGambar === 'upload' ? (
+              <GambarUploader
+                url={blok.sumberGambar === 'upload' ? blok.url : undefined}
+                storagePath={blok.storagePath}
+                onUploaded={(url, path) => onChange({ ...blok, url, sumberGambar: 'upload', storagePath: path })}
+                onRemove={() => onChange({ ...blok, url: '', sumberGambar: 'upload', storagePath: undefined })}
+              />
+            ) : (
+              <div className="flex flex-col gap-2">
+                <input className={ta} placeholder="URL gambar (https://...)"
+                  value={blok.sumberGambar === 'link' ? blok.url : ''}
+                  onChange={e => onChange({ ...blok, url: e.target.value, sumberGambar: 'link', storagePath: undefined })} />
+                {blok.sumberGambar === 'link' && blok.url && (
+                  <img src={blok.url} alt="" className="max-h-40 rounded-lg border border-gray-100 object-contain"
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                )}
+              </div>
+            )}
+
             <input className={ta} placeholder="Keterangan gambar (opsional)"
               value={blok.caption} onChange={e => onChange({ ...blok, caption: e.target.value })} />
-            {blok.url && <img src={blok.url} alt="" className="max-h-40 rounded-lg border border-gray-100 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
           </div>
         )}
+
         {blok.tipe === 'video' && (
           <div className="flex flex-col gap-2">
             <input className={ta} placeholder="Link YouTube (https://youtube.com/watch?v=... atau youtu.be/...)"
@@ -92,7 +211,7 @@ function BlokEditor({ blok, onChange, onHapus, onNaik, onTurun, bisaNaik, bisaTu
   )
 }
 
-// ── Editor kuis opsional per segmen ──
+// ── Editor kuis ──
 function KuisEditor({ kuis, onChange, onHapus }: { kuis: Kuis; onChange: (k: Kuis) => void; onHapus: () => void }) {
   const inp = "border border-gray-200 bg-white p-2 rounded-lg w-full text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
   const setPilihan = (i: number, v: string) => { const p = [...kuis.pilihan]; p[i] = v; onChange({ ...kuis, pilihan: p }) }
@@ -105,6 +224,18 @@ function KuisEditor({ kuis, onChange, onHapus }: { kuis: Kuis; onChange: (k: Kui
       </div>
       <input className={inp} placeholder="Pertanyaan..." value={kuis.pertanyaan}
         onChange={e => onChange({ ...kuis, pertanyaan: e.target.value })} />
+
+      {/* Upload gambar pertanyaan (opsional) */}
+      <div className="rounded-lg border border-amber-100 bg-white p-2.5">
+        <GambarUploader
+          label="Gambar pertanyaan (opsional)"
+          url={kuis.gambar_url}
+          storagePath={kuis.gambar_storage_path}
+          onUploaded={(url, path) => onChange({ ...kuis, gambar_url: url, gambar_storage_path: path })}
+          onRemove={() => onChange({ ...kuis, gambar_url: undefined, gambar_storage_path: undefined })}
+        />
+      </div>
+
       <div className="flex flex-col gap-1.5">
         {kuis.pilihan.map((p, i) => (
           <div key={i} className="flex items-center gap-2">
@@ -161,7 +292,17 @@ export default function AdminMateriPage() {
   const handleEdit = (m: MateriItem) => {
     setEditTarget(m); setJudul(m.judul); setSelectedBencana(m.jenis_bencana_id ? String(m.jenis_bencana_id) : '')
     setIsKonsepDasar(m.is_konsep_dasar)
-    setSegmen(Array.isArray(m.segmen) ? m.segmen : [])
+    // Migrasi data lama: blok gambar tanpa sumberGambar dianggap 'link'
+    const migratedSegmen = (Array.isArray(m.segmen) ? m.segmen : []).map(sg => ({
+      ...sg,
+      blok: sg.blok.map(b => {
+        if (b.tipe === 'gambar' && !b.sumberGambar) {
+          return { ...b, sumberGambar: 'link' as const }
+        }
+        return b
+      })
+    }))
+    setSegmen(migratedSegmen)
     setMode('edit')
   }
 
@@ -174,10 +315,10 @@ export default function AdminMateriPage() {
     const c = [...s];[c[i], c[j]] = [c[j], c[i]]; return c
   })
 
-  // ── Operasi blok dalam segmen ──
+  // ── Operasi blok ──
   const blokBaru = (tipe: Blok['tipe']): Blok => {
     if (tipe === 'teks') return { id: uid(), tipe, isi: '' }
-    if (tipe === 'gambar') return { id: uid(), tipe, url: '', caption: '' }
+    if (tipe === 'gambar') return { id: uid(), tipe, url: '', caption: '', sumberGambar: 'upload' }
     if (tipe === 'video') return { id: uid(), tipe, youtubeUrl: '' }
     return { id: uid(), tipe: 'html', kode: '' }
   }
@@ -372,6 +513,9 @@ export default function AdminMateriPage() {
                     {sg.kuis && (
                       <div className="bg-white rounded-lg border border-amber-200 p-3">
                         <p className="text-sm font-medium text-gray-800 mb-2">{sg.kuis.pertanyaan || '(pertanyaan kuis)'}</p>
+                        {sg.kuis.gambar_url && (
+                          <img src={sg.kuis.gambar_url} alt="" className="max-h-40 rounded-lg border border-gray-100 object-contain mb-2" />
+                        )}
                         <div className="flex flex-col gap-1.5">
                           {sg.kuis.pilihan.map((p, i) => (
                             <div key={i} className={`text-xs px-3 py-1.5 rounded-lg border ${i === sg.kuis!.jawaban_benar ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-600'}`}>

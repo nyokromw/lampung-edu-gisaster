@@ -143,6 +143,7 @@ function createPointMarker(latlng: L.LatLng, warna: string, shape: LayerStyle['i
 function defaultStyle(kategori: string, warna: string): LayerStyle {
   if (kategori === 'administrasi') return { fillOpacity: 0, strokeColor: '#000000', strokeWidth: 0.5, dashArray: '8,6', showLabels: false, iconShape: 'circle' as const }
   if (kategori === 'fasilitas') return { fillOpacity: 1, strokeColor: warna || '#3388ff', strokeWidth: 0, dashArray: '', showLabels: false, iconShape: 'circle' as const }
+  if (kategori === 'garis') return { fillOpacity: 1, strokeColor: warna || '#0284c7', strokeWidth: 2, dashArray: '', showLabels: false, iconShape: 'circle' as const }
   if (kategori === 'faktor') return { fillOpacity: 1, strokeColor: '#ffffff', strokeWidth: 0, dashArray: '', showLabels: false, iconShape: 'circle' as const }
   return { fillOpacity: 1, strokeColor: '#ffffff', strokeWidth: 0, dashArray: '', showLabels: false, iconShape: 'circle' as const }
 }
@@ -183,15 +184,15 @@ function nilaiUntukPopup(info: LayerPeta, props: Record<string, any>): { label: 
   return { label: pertama ? pertama[0] : 'Info', utama: pertama ? String(pertama[1]) : '-' }
 }
 
-interface LegendEntry { label: string; warna: string; type: 'polygon' | 'point'; shape?: LayerStyle['iconShape'] }
+interface LegendEntry { label: string; warna: string; type: 'polygon' | 'point' | 'line'; shape?: LayerStyle['iconShape'] }
 interface LegendGroup {
   kategori: string; judulKategori: string
   subGroups: { judulJenis: string; entries: LegendEntry[] }[]
 }
 
 function buildLegendGroups(layers: LayerState[]): LegendGroup[] {
-  const katOrder = ['hasil', 'administrasi', 'fasilitas', 'faktor', 'bencana']
-  const katLabel: Record<string, string> = { hasil: 'Hasil Analisis', administrasi: 'Administrasi', fasilitas: 'Fasilitas', faktor: 'Faktor Bencana', bencana: 'Rawan Bencana' }
+  const katOrder = ['hasil', 'administrasi', 'fasilitas', 'garis', 'faktor', 'bencana']
+  const katLabel: Record<string, string> = { hasil: 'Hasil Analisis', administrasi: 'Administrasi', fasilitas: 'Fasilitas', garis: 'Garis / Jaringan', faktor: 'Faktor Bencana', bencana: 'Rawan Bencana' }
   const grouped: Record<string, Record<string, LegendEntry[]>> = {}
 
   for (const l of layers) {
@@ -207,11 +208,11 @@ function buildLegendGroups(layers: LayerState[]): LegendGroup[] {
       for (const sl of l.subLayers) {
         if (!sl.visible || seen.has(sl.tingkat)) continue
         seen.add(sl.tingkat)
-        grouped[kat][jenis].push({ label: sl.tingkat, warna: sl.warna, type: 'polygon' })
+        grouped[kat][jenis].push({ label: sl.tingkat, warna: sl.warna, type: kat === 'garis' ? 'line' : 'polygon' })
       }
     } else if (l.layer) {
       if (!grouped[kat][jenis]) grouped[kat][jenis] = []
-      const type: 'polygon' | 'point' = kat === 'fasilitas' ? 'point' : 'polygon'
+      const type: 'polygon' | 'point' | 'line' = kat === 'fasilitas' ? 'point' : kat === 'garis' ? 'line' : 'polygon'
       // Ambil warna real dari style.strokeColor (yang dipakai sebagai fillColor untuk marker)
       // strokeColor di fasilitas = warna icon aktual (bisa diubah user)
       const warnaAktual = l.style.strokeColor || l.info.warna || '#3388ff'
@@ -506,6 +507,7 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
   const [popupInfo, setPopupInfo] = useState<{ latlng: L.LatLng; items: { layerNama: string; props: Record<string, any> }[] } | null>(null)
   const toolActiveRef = useRef(false)
   const popupRef = useRef<L.Popup | null>(null)
+  const handleLayerClickRef = useRef<(latlng: L.LatLng) => void>(() => {})
 
   const hoverElevationRef = useRef<number | null>(null)
 
@@ -683,6 +685,13 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
     // Tambahkan semua subLayer ke peta (OverlayControl membuat L.geoJSON tanpa addTo)
     hasil.subLayers.forEach(sl => { try { map.addLayer(sl.layer) } catch (_) {} })
     if (hasil.layer) { try { map.addLayer(hasil.layer) } catch (_) {} }
+    // Klik hasil overlay -> lepas popup bawaannya, alihkan ke popup "layer aktif" gabungan
+    const wireHasilClick = (gj: L.GeoJSON) => {
+      try { gj.eachLayer((sub: any) => sub.unbindPopup?.()) } catch (_) {}
+      gj.on('click', (e: any) => { if (!toolActiveRef.current) handleLayerClickRef.current(e.latlng) })
+    }
+    hasil.subLayers.forEach(sl => wireHasilClick(sl.layer))
+    if (hasil.layer) wireHasilClick(hasil.layer)
     setLayers(prev => {
       const updated = sisipkanLayer(prev, hasil)
       setTimeout(() => applyZOrder(updated), 50)
@@ -808,15 +817,15 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
   }
 
   // Urutan tetap: hasil (paling atas) → administrasi → fasilitas → faktor → bencana (bawah)
-  const KATEGORI_ORDER: Record<string, number> = { hasil: -1, administrasi: 0, fasilitas: 1, faktor: 2, bencana: 3 }
+  const KATEGORI_ORDER: Record<string, number> = { hasil: -1, administrasi: 0, fasilitas: 1, garis: 2, faktor: 3, bencana: 4 }
   const sortLayersByKategori = (list: LayerState[]) =>
     [...list].sort((a, b) => {
       const ka = a.info.jenis_bencana?.kategori || 'bencana'
       const kb = b.info.jenis_bencana?.kategori || 'bencana'
-      return (KATEGORI_ORDER[ka] ?? 3) - (KATEGORI_ORDER[kb] ?? 3)
+      return (KATEGORI_ORDER[ka] ?? 4) - (KATEGORI_ORDER[kb] ?? 4)
     })
 
-  const urutanKat = (l: LayerState) => KATEGORI_ORDER[l.info.jenis_bencana?.kategori || 'bencana'] ?? 3
+  const urutanKat = (l: LayerState) => KATEGORI_ORDER[l.info.jenis_bencana?.kategori || 'bencana'] ?? 4
   // Sisipkan layer baru di akhir blok kategorinya, tanpa mengacak urutan manual layer lama
   const sisipkanLayer = (list: LayerState[], baru: LayerState) => {
     const o = urutanKat(baru)
@@ -918,9 +927,11 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
   const applyStyle = async (index: number, newStyle: Partial<LayerStyle>) => {
     const updated = [...layers]; const l = updated[index]
     l.style = { ...l.style, ...newStyle }
+    const isGaris = (l.info.jenis_bencana?.kategori || '') === 'garis'
     const styleObj: L.PathOptions = { color: l.style.strokeColor, weight: l.style.strokeWidth, fillOpacity: l.style.fillOpacity, dashArray: l.style.dashArray || undefined }
+    if (isGaris) styleObj.opacity = l.style.fillOpacity
     if (l.layer) l.layer.setStyle(styleObj)
-    l.subLayers.forEach(sl => sl.layer.setStyle({ ...styleObj, fillColor: sl.warna }))
+    l.subLayers.forEach(sl => sl.layer.setStyle(isGaris ? { ...styleObj, color: sl.warna } : { ...styleObj, fillColor: sl.warna }))
     if (newStyle.showLabels !== undefined) {
       removeLabels(l.info.id)
       if (l.style.showLabels && l.visible) {
@@ -1031,8 +1042,27 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
 
     if (items.length === 0) return
 
+    // Hasil overlay selalu di baris paling atas
+    const ordered = [...items].sort((a, b) =>
+      (b.info?.jenis_bencana?.kategori === 'hasil' ? 1 : 0) - (a.info?.jenis_bencana?.kategori === 'hasil' ? 1 : 0))
+
     // Build popup HTML — nilai dibaca dari field yang ditetapkan di legenda
-    const html = items.map((item, idx) => {
+    const html = ordered.map((item, idx) => {
+      // Baris khusus hasil overlay: wilayah + tingkat + luas
+      if (item.info?.jenis_bencana?.kategori === 'hasil') {
+        const p = item.props || {}
+        const warnaH = p._warna || item.info?.warna || '#f59e0b'
+        const rowH = (lbl: string, val: string) => `<div style="display:flex;font-size:11px;margin-top:3px"><span style="color:#9ca3af;font-weight:600;width:72px;flex-shrink:0">${esc(lbl)}</span><span style="color:#334155;flex:1">${esc(val)}</span></div>`
+        return `<div style="${idx > 0 ? 'border-top:1px solid #e2e8f0;' : ''}margin-bottom:${idx === ordered.length - 1 ? '0' : '6'}px;padding-top:${idx > 0 ? '6' : '0'}px;padding-bottom:6px">
+          <div style="display:flex;align-items:center;font-size:11px;margin-bottom:2px">
+            <span style="width:9px;height:9px;border-radius:2px;background:${warnaH};flex-shrink:0;margin-right:6px;border:1px solid rgba(0,0,0,0.12)"></span>
+            <span style="color:#1e293b;font-weight:600;flex:1">${esc(item.layerNama)}</span>
+          </div>
+          ${p._namaWilayah ? rowH('Wilayah', String(p._namaWilayah)) : ''}
+          ${p._tingkat ? `<div style="display:flex;font-size:11px;margin-top:3px"><span style="color:#9ca3af;font-weight:600;width:72px;flex-shrink:0">Tingkat</span><span style="color:#334155;flex:1;font-weight:700">${esc(String(p._tingkat))}</span></div>` : ''}
+          ${p._luas_ha ? rowH('Luas', `${p._luas_ha} ha`) : ''}
+        </div>`
+      }
       const { label, utama, tambahan } = nilaiUntukPopup(item.info, item.props)
       // Warna kotak kecil diambil dari legenda agar cocok dengan yang tampil di peta
       const leg = item.info?.legenda
@@ -1046,7 +1076,7 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
            </div>`
         : ''
 
-      return `<div style="${idx > 0 ? 'border-top:1px solid #e2e8f0;' : ''}margin-bottom:${idx === items.length - 1 ? '0' : '6'}px;padding-top:${idx > 0 ? '6' : '0'}px;padding-bottom:6px">
+      return `<div style="${idx > 0 ? 'border-top:1px solid #e2e8f0;' : ''}margin-bottom:${idx === ordered.length - 1 ? '0' : '6'}px;padding-top:${idx > 0 ? '6' : '0'}px;padding-bottom:6px">
         <div style="display:flex;align-items:center;font-size:11px;margin-bottom:4px">
           <span style="width:9px;height:9px;border-radius:2px;background:${warnaKelas};flex-shrink:0;margin-right:6px;border:1px solid rgba(0,0,0,0.12)"></span>
           <span style="color:#1e293b;font-weight:600;flex:1">${esc(item.layerNama)}</span>
@@ -1090,6 +1120,7 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
     // Fetch elevation
     readElevationAt(latlng.lat, latlng.lng)
   }, [])
+  handleLayerClickRef.current = handleLayerClick
 
   // Load satu layer saat user centang
   const loadSingleLayer = useCallback(async (layerData: LayerPeta) => {
@@ -1101,6 +1132,7 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
       const geojson = await res.json()
       if (!mapRef.current) return
       const kat = layerData.jenis_bencana?.kategori || 'bencana'
+      const isGaris = kat === 'garis'
       const base = defaultStyle(kat, layerData.warna)
       // Opasitas dari panel admin. Administrasi sengaja tetap tanpa isi.
       const style = kat === 'administrasi' ? base : { ...base, fillOpacity: layerData.opacity ?? base.fillOpacity }
@@ -1139,7 +1171,9 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
           const features = geojson.features.filter((f: any) => String(f.properties?.[field]) === String(k.nilai))
           if (!features.length) return
           const subLayer = L.geoJSON({ type: 'FeatureCollection', features } as any, {
-            style: { color: style.strokeColor, weight: style.strokeWidth, fillColor: k.warna, fillOpacity: style.fillOpacity, dashArray: style.dashArray || undefined },
+            style: isGaris
+              ? { color: k.warna, weight: style.strokeWidth || 2, opacity: style.fillOpacity ?? 1, fill: false, dashArray: style.dashArray || undefined }
+              : { color: style.strokeColor, weight: style.strokeWidth, fillColor: k.warna, fillOpacity: style.fillOpacity, dashArray: style.dashArray || undefined },
             onEachFeature: (_feature, layer) => { layer.on('click', (e) => { if (!toolActiveRef.current) handleLayerClick(e.latlng) }) },
             pointToLayer: (_f, latlng) => createPointMarker(latlng, k.warna, style.iconShape, Math.max(4, map.getZoom() - 7)),
           }).addTo(map)
@@ -1148,7 +1182,9 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
         ls = { info: layerData, layer: null, visible: true, subLayers, style, showStylePanel: false }
       } else {
         const layer = L.geoJSON(geojson, {
-          style: { color: style.strokeColor, weight: style.strokeWidth, fillColor: layerData.warna || '#3388ff', fillOpacity: style.fillOpacity, dashArray: style.dashArray || undefined },
+          style: isGaris
+            ? { color: layerData.warna || '#0284c7', weight: style.strokeWidth || 2, opacity: style.fillOpacity ?? 1, fill: false, dashArray: style.dashArray || undefined }
+            : { color: style.strokeColor, weight: style.strokeWidth, fillColor: layerData.warna || '#3388ff', fillOpacity: style.fillOpacity, dashArray: style.dashArray || undefined },
           onEachFeature: (_feature, layer) => { layer.on('click', (e) => { if (!toolActiveRef.current) handleLayerClick(e.latlng) }) },
           pointToLayer: (_feature, latlng) => {
             const getSize = (zoom: number) => Math.max(4, zoom - 7)
@@ -1202,10 +1238,11 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
     hasil: hasilLayers,
     administrasi: layers.filter(l => l.info.jenis_bencana?.kategori === 'administrasi'),
     fasilitas: layers.filter(l => l.info.jenis_bencana?.kategori === 'fasilitas'),
+    garis: layers.filter(l => l.info.jenis_bencana?.kategori === 'garis'),
     faktor: layers.filter(l => l.info.jenis_bencana?.kategori === 'faktor'),
-    bencana: layers.filter(l => !['hasil', 'administrasi', 'fasilitas', 'faktor'].includes(l.info.jenis_bencana?.kategori || '')),
+    bencana: layers.filter(l => !['hasil', 'administrasi', 'fasilitas', 'garis', 'faktor'].includes(l.info.jenis_bencana?.kategori || '')),
   }
-  const groupLabels: Record<string, string> = { hasil: 'Hasil Analisis', administrasi: 'Administrasi', fasilitas: 'Fasilitas', faktor: 'Faktor Bencana', bencana: 'Rawan Bencana' }
+  const groupLabels: Record<string, string> = { hasil: 'Hasil Analisis', administrasi: 'Administrasi', fasilitas: 'Fasilitas', garis: 'Garis / Jaringan', faktor: 'Faktor Bencana', bencana: 'Rawan Bencana' }
 
   // ── KARTU LAYER SERAGAM — satu-satunya pusat kontrol ──
   // Kerangka sama untuk semua: [mata] Nama [gear][zoom][hapus] + pengaturan seragam + daftar isi (kelas/wilayah)
@@ -1214,12 +1251,9 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
     applyStyle(index, { fillOpacity: clamped })
   }
 
-  // Naik/turun satu langkah. Administrasi & hasil terkunci di blok atas:
-  // layer biasa tidak bisa melewatinya, dan sebaliknya.
-  const bolehTukar = (a: LayerState, b: LayerState) => {
-    const terkunci = (l: LayerState) => ['administrasi', 'hasil'].includes(l.info.jenis_bencana?.kategori || '')
-    return terkunci(a) === terkunci(b)
-  }
+  // Reorder bebas: semua layer (termasuk hasil overlay & administrasi) boleh
+  // dinaik-turunkan lewat panah maupun tahan-geser (drag).
+  const bolehTukar = (_a: LayerState, _b: LayerState) => true
   const pindahLayer = (index: number, arah: -1 | 1) => {
     const target = index + arah
     if (target < 0 || target >= layers.length) return
@@ -1234,6 +1268,7 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
     const kat = l.info.jenis_bencana?.kategori || 'bencana'
     const isFasilitas = kat === 'fasilitas'
     const isAdmin = kat === 'administrasi'
+    const isGaris = kat === 'garis'
     const isHasil = kat === 'hasil'
     const isTiered = l.subLayers.length > 0
     const op = l.style.fillOpacity ?? 1
@@ -1251,6 +1286,10 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
         applyStyle(globalIndex, { strokeColor: w })
         if (l.layer) (l.layer as any).setStyle?.({ color: w })
         setLayers(prev => [...prev])
+      } else if (isGaris) {
+        // Garis (sungai/jalan): warna tunggal = warna garis (stroke)
+        l.info.warna = w
+        applyStyle(globalIndex, { strokeColor: w })
       } else if (l.layer) {
         (l.layer as any).setStyle?.({ fillColor: w, color: w })
         l.info.warna = w
@@ -1259,7 +1298,11 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
     }
 
     return (
-      <div key={l.info.id} className={`rounded-lg border select-none ${isHasil ? 'border-amber-200 bg-amber-50/40' : 'border-gray-200 bg-white'}`}>
+      <div key={l.info.id}
+        onDragOver={(e) => { if (dragIndex !== null) { e.preventDefault(); if (dragOverIndex !== globalIndex) setDragOverIndex(globalIndex) } }}
+        onDrop={() => { if (dragIndex !== null && dragIndex !== globalIndex) reorderLayers(dragIndex, globalIndex); setDragIndex(null); setDragOverIndex(null) }}
+        onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }}
+        className={`rounded-lg border select-none transition-all ${isHasil ? 'border-amber-200 bg-amber-50/40' : 'border-gray-200 bg-white'} ${dragIndex === globalIndex ? 'opacity-40' : ''} ${dragOverIndex === globalIndex && dragIndex !== null && dragIndex !== globalIndex ? 'ring-2 ring-blue-400' : ''}`}>
         {/* Header seragam */}
         <div className="flex items-center gap-1.5 px-2 py-1.5">
           {/* Urutan naik/turun */}
@@ -1267,7 +1310,11 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
             const bisaNaik = globalIndex > 0 && bolehTukar(l, layers[globalIndex - 1])
             const bisaTurun = globalIndex < layers.length - 1 && bolehTukar(l, layers[globalIndex + 1])
             return (
-              <div className="flex flex-col flex-shrink-0 -my-0.5">
+              <div
+                draggable
+                onDragStart={(e) => { setDragIndex(globalIndex); try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(globalIndex)) } catch (_) {} }}
+                title="Tahan & geser untuk memindahkan (atau klik panah)"
+                className="flex flex-col flex-shrink-0 -my-0.5 px-0.5 rounded cursor-grab active:cursor-grabbing hover:bg-gray-100">
                 <button onClick={() => pindahLayer(globalIndex, -1)} disabled={!bisaNaik}
                   title={bisaNaik ? 'Naikkan layer' : 'Sudah paling atas'}
                   className={`leading-none text-[8px] px-0.5 ${bisaNaik ? 'text-gray-400 hover:text-blue-600' : 'text-gray-200 cursor-default'}`}>▲</button>
@@ -1290,12 +1337,15 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
           {!isTiered && (() => {
             const warnaKini = isAdmin ? (l.style.strokeColor || '#000000')
               : isFasilitas ? (l.style.strokeColor || l.info.warna || '#3388ff')
+              : isGaris ? (l.style.strokeColor || l.info.warna || '#0284c7')
               : (l.info.warna || '#3388ff')
             return (
               <div className="relative w-3.5 h-3.5 flex-shrink-0" title="Ganti warna">
                 {/* Admin = tampilkan sebagai cincin (stroke), lain = isi */}
                 {isAdmin
                   ? <div className="w-3.5 h-3.5 rounded-sm bg-white" style={{ border: `2px solid ${warnaKini}` }} />
+                  : isGaris
+                  ? <div className="w-3.5 flex-shrink-0 rounded-full" style={{ height: 3, background: warnaKini }} />
                   : <div className={`w-3.5 h-3.5 border border-black/10 ${isFasilitas ? 'rounded-full' : 'rounded-sm'}`} style={{ background: warnaKini }} />}
                 <input type="color" value={warnaKini}
                   onChange={e => setWarnaTunggal(e.target.value)}
@@ -1683,10 +1733,10 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
                     {availableLayers.length > 0 ? (
                       <>
                         <p className="text-[10px] text-gray-400 mb-2">Centang layer untuk menampilkannya di peta.</p>
-                        {(['administrasi', 'fasilitas', 'faktor', 'bencana'] as const).map(kat => {
+                        {(['administrasi', 'fasilitas', 'garis', 'faktor', 'bencana'] as const).map(kat => {
                           const group = availableLayers.filter((l: any) => {
                             const k = l.jenis_bencana?.kategori || 'bencana'
-                            return kat === 'bencana' ? !['administrasi','fasilitas','faktor'].includes(k) : k === kat
+                            return kat === 'bencana' ? !['administrasi','fasilitas','garis','faktor'].includes(k) : k === kat
                           })
                           if (!group.length) return null
                           return (
@@ -1876,10 +1926,10 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
                         <span className="text-[11px] text-gray-700 flex-1 truncate">Label Jalan & POI</span>
                       </button>
                     </div>
-                    {(['administrasi', 'fasilitas', 'faktor', 'bencana'] as const).map(kat => {
+                    {(['administrasi', 'fasilitas', 'garis', 'faktor', 'bencana'] as const).map(kat => {
                       const group = availableLayers.filter((l: any) => {
                         const k = l.jenis_bencana?.kategori || 'bencana'
-                        return kat === 'bencana' ? !['administrasi','fasilitas','faktor'].includes(k) : k === kat
+                        return kat === 'bencana' ? !['administrasi','fasilitas','garis','faktor'].includes(k) : k === kat
                       })
                       if (!group.length) return null
                       return (
@@ -2241,7 +2291,7 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
                 )}
                 {layers.map((l, lIdx) => {
                   const kat = l.info.jenis_bencana?.kategori || 'bencana'
-                  const KAT_COLOR: Record<string,string> = { hasil:'text-amber-700', administrasi:'text-emerald-700', fasilitas:'text-blue-700', faktor:'text-purple-700', bencana:'text-red-700' }
+                  const KAT_COLOR: Record<string,string> = { hasil:'text-amber-700', administrasi:'text-emerald-700', fasilitas:'text-blue-700', garis:'text-cyan-700', faktor:'text-purple-700', bencana:'text-red-700' }
                   if (!l.visible) return null
                   return (
                     <div key={`${l.info.id}-${lIdx}`}>
@@ -2250,14 +2300,18 @@ export default function Map({ mapId = 'map', compact = false, height }: { mapId?
                         <div className="flex flex-col gap-0.5 pl-0.5">
                           {sortSubLayers(l.subLayers.filter(sl => sl.visible)).map((sl, si) => (
                             <div key={si} className="flex items-center gap-1.5">
-                              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 border border-black/10" style={{ background: sl.warna }} />
+                              {kat === 'garis'
+                                ? <span className="w-2.5 flex-shrink-0 rounded-full" style={{ height: 3, background: sl.warna }} />
+                                : <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 border border-black/10" style={{ background: sl.warna }} />}
                               <span className="text-[9px] text-gray-600 capitalize truncate">{sl.tingkat}</span>
                             </div>
                           ))}
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5 pl-0.5">
-                          {kat === 'administrasi'
+                          {kat === 'garis'
+                            ? <span className="w-2.5 flex-shrink-0 rounded-full" style={{ height: 3, background: (l.style.strokeColor || l.info.warna) || '#0284c7' }} />
+                            : kat === 'administrasi'
                             ? <span className="w-2.5 h-2.5 flex-shrink-0 rounded-sm bg-white" style={{ border: `2px solid ${l.style.strokeColor || '#000000'}` }} />
                             : <span className={`w-2.5 h-2.5 flex-shrink-0 border border-black/10 ${kat === 'fasilitas' ? 'rounded-full' : 'rounded-sm'}`} style={{ background: (kat==='fasilitas' ? (l.style.strokeColor || l.info.warna) : l.info.warna) || '#3388ff' }} />}
                           <span className="text-[9px] text-gray-600 truncate">{l.info.nama}</span>

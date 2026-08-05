@@ -927,13 +927,13 @@ export default function OverlayControl({ layers, onIntersectResult, onHasilLayer
                     ? (mode === 'administrasi' ? 'Kosong = semua kecamatan dianalisis' : 'Kosong = seluruh area (tanpa pemotongan)')
                     : `${selectedWilayah.length} kecamatan dipilih`}
                 </p>
-                <div className="grid grid-cols-2 gap-x-1 gap-y-0.5 max-h-36 overflow-y-auto border border-gray-200 rounded-lg p-1.5 bg-white">
+                <div className="flex flex-col gap-y-0.5 max-h-52 overflow-y-auto border border-gray-200 rounded-lg p-1.5 bg-white">
                   {adminWilayahOptions.map(w => (
                     <label key={w} className="flex items-center gap-1.5 cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded min-w-0">
                       <input type="checkbox" checked={selectedWilayah.includes(w)}
                         onChange={() => toggleWilayah(w)}
                         className="w-3 h-3 accent-slate-700 flex-shrink-0" />
-                      <span className="text-[10px] text-gray-700 truncate">{w}</span>
+                      <span className="text-[10px] text-gray-700 leading-tight" title={w}>{w}</span>
                     </label>
                   ))}
                 </div>

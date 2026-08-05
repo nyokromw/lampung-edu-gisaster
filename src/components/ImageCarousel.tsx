@@ -9,7 +9,7 @@ interface CarouselImage {
 
 const IMAGES: CarouselImage[] = [
   {
-    url: 'https://konsentris.id/wp-content/uploads/2025/02/HL-Banjir-Bandar-Lampung.jpg',
+    url: 'https://pgptvvqfagpbdbjrtrqt.supabase.co/storage/v1/object/public/about-assets/HERO%201.png',
     caption: 'Banjir di Bandar Lampung',
   },
   {
