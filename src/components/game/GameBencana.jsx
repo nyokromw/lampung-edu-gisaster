@@ -1,16 +1,21 @@
 'use client'
 
 // ============================================================
-//  SIGANA 3D v2.1 — Game Survival Bencana | Lampung Edu Gisaster
-//  4 mode: Banjir, Tanah Longsor, Gempa Bumi, Tsunami
-//  3 tahap: PRA (rumah + tas siaga) → SAAT (evakuasi) → PASCA (pemulihan)
-//  Semua ikon memakai SVG vektor (tanpa emoji)
+//  Game Edukasi Bencana v4 — Lampung Edu Gisaster
+//  PRA  : (1) MITIGASI STRUKTURAL — mode perencanaan top-down,
+//         siswa menempatkan 5 struktur mitigasi nyata di peta
+//         (sumur resapan / mangrove-tanggul / terasering / retrofit)
+//         (2) TAS SIAGA — karakter muncul; semua item di zona merah
+//  SAAT : evakuasi dimulai dari ZONA SANGAT RAWAN menuju SATU-SATUNYA
+//         area evakuasi (zona hijau tunggal), dipandu panah di jalan
+//         + rambu; ruas jalan terputus tampil live di minimap
+//  PASCA: pemulihan 5 titik infrastruktur
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 
-// ---------------- IKON VEKTOR (viewBox 24, stroke) ----------------
+// ---------------- IKON VEKTOR ----------------
 const IKON = {
   banjir: ['M4 11l8-7 8 7', 'M2 17c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2', 'M2 21c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2'],
   tsunami: ['M3 18c2.5 0 2.5-3 5-3s2.5 3 5 3 2.5-3 5-3 2.5 3 5 3', 'M15 12a8 8 0 0 0-10-7c4 .5 6.5 3 7 7'],
@@ -39,6 +44,8 @@ const IKON = {
   ulang: ['M20 12a8 8 0 1 1-2.34-5.66', 'M20 4v4h-4'],
   rumah: ['M3 11l9-8 9 8', 'M5 10v10h14V10', 'M10 20v-6h4v6'],
   lokasi: ['M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z', 'M9.5 10a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0'],
+  peta: ['M9 5l6-2 6 2v14l-6-2-6 2-6-2V3z', 'M9 5v14', 'M15 3v14'],
+  sumur: ['M4 12a8 4 0 1 0 16 0a8 4 0 1 0-16 0', 'M4 12v5c0 2.2 3.6 4 8 4s8-1.8 8-4v-5', 'M9 11h.01', 'M15 13h.01'],
   atas: ['M6 15l6-6 6 6'],
   bawah: ['M6 9l6 6 6-6'],
   kiri: ['M15 6l-6 6 6 6'],
@@ -55,7 +62,6 @@ function Ikon({ jenis, className = 'w-5 h-5', strokeWidth = 1.8 }) {
   )
 }
 
-// sprite 3D dari ikon vektor: glyph putih di atas lingkaran berwarna
 function spriteIkon(jenis, warnaBg = '#f59e0b', ukuran = 2.2) {
   const c = document.createElement('canvas')
   c.width = c.height = 128
@@ -80,20 +86,174 @@ function spriteIkon(jenis, warnaBg = '#f59e0b', ukuran = 2.2) {
   return spr
 }
 
+// ---------------- THUMBNAIL SVG SKENARIO ----------------
+function ThumbBencana({ jenis }) {
+  const svgProps = { viewBox: '0 0 200 112', className: 'w-full h-full', preserveAspectRatio: 'xMidYMid slice' }
+  if (jenis === 'banjir') {
+    return (
+      <svg {...svgProps}>
+        <defs>
+          <linearGradient id="tb-sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#475569" /><stop offset="1" stopColor="#94a3b8" />
+          </linearGradient>
+          <linearGradient id="tb-air" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#38bdf8" /><stop offset="1" stopColor="#1d4ed8" />
+          </linearGradient>
+        </defs>
+        <rect width="200" height="112" fill="url(#tb-sky)" />
+        {[20, 55, 90, 125, 160].map((x, i) => (
+          <line key={i} x1={x + 8} y1="8" x2={x} y2="26" stroke="#cbd5e1" strokeWidth="1.6" strokeLinecap="round" opacity=".7" />
+        ))}
+        <g>
+          <rect x="38" y="46" width="40" height="30" rx="1" fill="#fef3c7" />
+          <polygon points="33,47 58,28 83,47" fill="#b91c1c" />
+          <rect x="52" y="60" width="12" height="16" fill="#78350f" />
+          <rect x="120" y="52" width="34" height="24" rx="1" fill="#e2e8f0" />
+          <polygon points="116,53 137,38 158,53" fill="#9f1239" />
+        </g>
+        <path d="M0 78c14 0 14-7 28-7s14 7 28 7 14-7 28-7 14 7 28 7 14-7 28-7 14 7 28 7 14-7 28-7 14 7 28 7v34H0z" fill="url(#tb-air)" opacity=".95" />
+        <path d="M0 90c12 0 12-5 24-5s12 5 24 5 12-5 24-5 12 5 24 5 12-5 24-5 12 5 24 5 12-5 24-5 12 5 24 5 12-5 24-5v27H0z" fill="#60a5fa" opacity=".55" />
+      </svg>
+    )
+  }
+  if (jenis === 'longsor') {
+    return (
+      <svg {...svgProps}>
+        <defs>
+          <linearGradient id="tl-sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#64748b" /><stop offset="1" stopColor="#cbd5e1" />
+          </linearGradient>
+          <linearGradient id="tl-slide" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#92400e" /><stop offset="1" stopColor="#57330f" />
+          </linearGradient>
+        </defs>
+        <rect width="200" height="112" fill="url(#tl-sky)" />
+        <polygon points="70,112 145,14 200,112" fill="#166534" />
+        <polygon points="0,112 55,52 110,112" fill="#15803d" />
+        <polygon points="128,36 158,36 178,112 96,112" fill="url(#tl-slide)" />
+        <circle cx="120" cy="88" r="7" fill="#78350f" />
+        <circle cx="142" cy="100" r="9" fill="#57330f" />
+        <circle cx="158" cy="78" r="5" fill="#92400e" />
+        <rect x="18" y="82" width="30" height="22" fill="#fef3c7" />
+        <polygon points="14,83 33,68 52,83" fill="#b91c1c" />
+        <rect x="180" y="100" width="20" height="12" fill="#3f6212" />
+      </svg>
+    )
+  }
+  if (jenis === 'gempa') {
+    return (
+      <svg {...svgProps}>
+        <defs>
+          <linearGradient id="tg-sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#78716c" /><stop offset="1" stopColor="#d6d3d1" />
+          </linearGradient>
+        </defs>
+        <rect width="200" height="112" fill="url(#tg-sky)" />
+        <rect x="24" y="34" width="30" height="58" fill="#94a3b8" transform="rotate(-6 39 92)" />
+        <rect x="86" y="22" width="34" height="70" fill="#cbd5e1" />
+        <rect x="150" y="40" width="28" height="52" fill="#94a3b8" transform="rotate(7 164 92)" />
+        {[28, 40, 92, 104, 154, 166].map((x, i) => (
+          <g key={i} fill="#334155">
+            <rect x={x} y="38" width="7" height="8" /><rect x={x} y="54" width="7" height="8" /><rect x={x} y="70" width="7" height="8" />
+          </g>
+        ))}
+        <rect x="0" y="92" width="200" height="20" fill="#57534e" />
+        <polyline points="0,100 34,98 58,106 92,96 124,104 156,97 200,103" fill="none" stroke="#1c1917" strokeWidth="4" strokeLinejoin="round" />
+        <circle cx="70" cy="30" r="2.5" fill="#78716c" /><circle cx="132" cy="18" r="3" fill="#78716c" />
+      </svg>
+    )
+  }
+  return (
+    <svg {...svgProps}>
+      <defs>
+        <linearGradient id="tt-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#0f766e" /><stop offset="1" stopColor="#99f6e4" />
+        </linearGradient>
+        <linearGradient id="tt-wave" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#0ea5e9" /><stop offset="1" stopColor="#1e3a8a" />
+        </linearGradient>
+      </defs>
+      <rect width="200" height="112" fill="url(#tt-sky)" />
+      <circle cx="168" cy="24" r="13" fill="#fde68a" />
+      <rect x="0" y="96" width="200" height="16" fill="#d8c48f" />
+      <rect x="152" y="76" width="26" height="20" fill="#fef3c7" />
+      <polygon points="148,77 165,62 182,77" fill="#b91c1c" />
+      <path d="M-4 112V70c0-28 26-44 54-40-14 6-20 16-18 26 26-16 62-8 70 16 8 22-6 40-6 40z" fill="url(#tt-wave)" />
+      <circle cx="46" cy="34" r="6" fill="#e0f2fe" /><circle cx="60" cy="28" r="4.5" fill="#e0f2fe" />
+      <circle cx="34" cy="42" r="5" fill="#bae6fd" /><circle cx="96" cy="52" r="5" fill="#e0f2fe" />
+      <path d="M0 112c16 0 16-6 32-6s16 6 32 6z" fill="#38bdf8" />
+    </svg>
+  )
+}
+
+// ---------------- PRATINJAU KARAKTER (SVG) ----------------
+function KarakterSVG({ gender, kulit }) {
+  const baju = gender === 'perempuan' ? '#e0529c' : '#2e77d0'
+  const rambut = gender === 'perempuan' ? '#4a2c14' : '#1d1d1d'
+  return (
+    <svg viewBox="0 0 120 168" className="w-full h-full" aria-hidden="true">
+      {gender === 'perempuan' && (
+        <g fill={rambut}>
+          <rect x="28" y="40" width="13" height="58" rx="6" />
+          <rect x="79" y="40" width="13" height="58" rx="6" />
+        </g>
+      )}
+      <rect x="42" y="118" width="15" height="36" rx="3" fill="#2f3b52" />
+      <rect x="63" y="118" width="15" height="36" rx="3" fill="#2f3b52" />
+      <rect x="40" y="150" width="19" height="9" rx="3" fill="#1e293b" />
+      <rect x="61" y="150" width="19" height="9" rx="3" fill="#1e293b" />
+      <rect x="24" y="80" width="13" height="40" rx="6" fill={kulit} />
+      <rect x="83" y="80" width="13" height="40" rx="6" fill={kulit} />
+      <rect x="36" y="76" width="48" height="46" rx="5" fill={baju} />
+      <rect x="36" y="76" width="48" height="10" rx="5" fill="rgba(255,255,255,0.18)" />
+      <rect x="36" y="26" width="48" height="48" rx="9" fill={kulit} />
+      <path d={gender === 'perempuan'
+        ? 'M36 44v-9a9 9 0 0 1 9-9h30a9 9 0 0 1 9 9v9c-4-6-10-9-24-9s-20 3-24 9z'
+        : 'M36 40v-5a9 9 0 0 1 9-9h30a9 9 0 0 1 9 9v5c-6-4-12-6-24-6s-18 2-24 6z'} fill={rambut} />
+      <g>
+        <ellipse cx="50" cy="52" rx="5.5" ry="6.5" fill="#fff" />
+        <ellipse cx="70" cy="52" rx="5.5" ry="6.5" fill="#fff" />
+        <circle cx="50" cy="53" r="3" fill="#3d2b1f" />
+        <circle cx="70" cy="53" r="3" fill="#3d2b1f" />
+        <circle cx="51" cy="52" r="1" fill="#fff" />
+        <circle cx="71" cy="52" r="1" fill="#fff" />
+      </g>
+      <path d="M44 43q6-4 12 0" stroke="#3d2b1f" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      <path d="M64 43q6-4 12 0" stroke="#3d2b1f" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      {gender === 'perempuan' && (
+        <g stroke="#222" strokeWidth="1.4" strokeLinecap="round">
+          <line x1="43.5" y1="49" x2="41" y2="47" />
+          <line x1="76.5" y1="49" x2="79" y2="47" />
+        </g>
+      )}
+      <line x1="60" y1="57" x2="60" y2="62" stroke="rgba(0,0,0,0.22)" strokeWidth="2" strokeLinecap="round" />
+      <path d="M52 66q8 6 16 0" stroke={gender === 'perempuan' ? '#c0392b' : '#7a4636'}
+        strokeWidth={gender === 'perempuan' ? 3.4 : 2.6} fill="none" strokeLinecap="round" />
+      <circle cx="43" cy="61" r="4" fill="rgba(255,120,120,0.3)" />
+      <circle cx="77" cy="61" r="4" fill="rgba(255,120,120,0.3)" />
+    </svg>
+  )
+}
+
 // ---------------- KONFIGURASI ----------------
 const SC = 1.55
 const BATAS = 56 * SC
+const TOWN = 57
+const P = 19
+const RW = 2.4
+const R_EVAK = 12 // radius zona hijau (area evakuasi tunggal), koordinat tak berskala
 
 const gauss = (x, z, cx, cz, r, h) =>
   h * Math.exp(-(((x - cx) ** 2 + (z - cz) ** 2) / (2 * r * r)))
 
+// ZONA: hijau (0) HANYA di sekitar titik evakuasi; sisanya waspada (1) / rawan (2)
 const MODES = {
   banjir: {
     nama: 'Banjir',
     langit: 0x8fb8d8,
-    deskripsi: 'Air sungai meluap dan menggenangi permukiman secara perlahan.',
+    deskripsi: 'Air meluap menggenangi kota. Satu-satunya zona aman: bukit evakuasi.',
     briefing:
-      'Hujan deras berhari-hari membuat sungai meluap. Air akan naik terus-menerus. Larilah ke dataran TINGGI mengikuti rambu jalur evakuasi. Hindari air dalam — dan hati-hati, banyak jalan terhalang pohon tumbang!',
+      'Hujan deras membuat sungai meluap. Di peta ini HANYA ADA SATU zona hijau — bukit evakuasi. Mulailah dengan membangun 5 SUMUR RESAPAN di permukiman rawan untuk mengurangi limpasan, siapkan tas siaga, lalu saat banjir datang ikuti PANAH JALUR EVAKUASI menuju bukit.',
     tinggi: (x, z) =>
       2.2 -
       2.6 * Math.exp(-((x + 18) ** 2) / 98) +
@@ -102,52 +262,54 @@ const MODES = {
       gauss(x, z, -50, 42, 12, 3.5) +
       0.3 * Math.sin(x * 0.15) * Math.cos(z * 0.12),
     rawan: function (x, z) {
-      const h = this.tinggi(x, z)
-      return h < 1.1 ? 2 : h < 2.5 ? 1 : 0
+      if (Math.hypot(x - 45, z + 40) < R_EVAK) return 0
+      return this.tinggi(x, z) < 1.1 ? 2 : 1
     },
-    spawn: [0, 20],
+    spawn: [0, 30],
     goal: [45, -40],
     goalLabel: 'Bukit Evakuasi',
   },
   longsor: {
     nama: 'Tanah Longsor',
     langit: 0x9fb3a8,
-    deskripsi: 'Lereng jenuh air runtuh dan material meluncur ke bawah.',
+    deskripsi: 'Lereng timur runtuh memutus jalan. Satu titik aman di barat daya.',
     briefing:
-      'Hujan deras mengguyur lereng di sisi TIMUR. Tanah mulai retak! Saat longsor terjadi, JANGAN lari searah luncuran — larilah MENJAUH dan MENYAMPING mengikuti rambu evakuasi. Waspadai batu berjatuhan dan jalan yang terputus.',
+      'Lereng di sisi TIMUR mulai retak. Zona hijau HANYA SATU: titik aman di barat daya. Bangun 5 TERASERING di lereng untuk memperlambat luncuran, siapkan tas siaga, lalu saat longsor terjadi lari menjauh dan menyamping mengikuti panah jalur evakuasi.',
     tinggi: (x, z) =>
       1.6 +
       (x > 12 ? (x - 12) * 0.38 : 0) +
       gauss(x, z, 60, 0, 26, 9) +
       gauss(x, z, -45, -42, 14, 3.2) +
       0.25 * Math.sin(x * 0.13) * Math.cos(z * 0.14),
-    rawan: (x, z) =>
-      x > 6 && Math.abs(z) < 30 ? 2 : x > -12 && Math.abs(z) < 42 ? 1 : 0,
-    spawn: [-5, 0],
+    rawan: (x, z) => {
+      if (Math.hypot(x + 45, z + 42) < R_EVAK) return 0
+      return x > 6 && Math.abs(z) < 30 ? 2 : 1
+    },
+    spawn: [-9.5, 0],
     goal: [-45, -42],
     goalLabel: 'Titik Aman',
   },
   gempa: {
     nama: 'Gempa Bumi',
     langit: 0xbcd0e0,
-    deskripsi: 'Guncangan kuat merobohkan bangunan di dekat jalur sesar.',
+    deskripsi: 'Guncangan merobohkan bangunan dekat sesar. Satu lapangan terbuka aman.',
     briefing:
-      'Kota ini dilewati JALUR SESAR aktif (garis gelap). Saat guncangan: BERLINDUNG (tahan tombol C) — jangan berlari! Setelah reda, evakuasi ke LAPANGAN TERBUKA mengikuti rambu, jauhi bangunan, dan waspadai gempa susulan serta reruntuhan yang menutup jalan.',
+      'Kota dilewati jalur sesar aktif. Zona hijau HANYA SATU: lapangan terbuka di barat laut. Perkuat 5 BANGUNAN di dekat sesar (retrofit), siapkan tas siaga, lalu saat gempa: BERLINDUNG (tahan C), dan setelah reda ikuti panah jalur evakuasi ke lapangan.',
     tinggi: (x, z) => 1.4 + 0.35 * Math.sin(x * 0.09) * Math.cos(z * 0.11),
-    rawan: (x) => {
-      const d = Math.abs(x - 10)
-      return d < 9 ? 2 : d < 24 ? 1 : 0
+    rawan: (x, z) => {
+      if (Math.hypot(x + 40, z - 36) < R_EVAK) return 0
+      return Math.abs(x - 10) < 9 ? 2 : 1
     },
-    spawn: [-10, -12],
+    spawn: [-12.3, -12.3],
     goal: [-40, 36],
     goalLabel: 'Lapangan Terbuka',
   },
   tsunami: {
     nama: 'Tsunami',
     langit: 0x9cc4d8,
-    deskripsi: 'Gempa di laut memicu gelombang raksasa menghantam pesisir.',
+    deskripsi: 'Gelombang raksasa dari timur. Satu-satunya zona aman: bukit di barat.',
     briefing:
-      'Kamu tinggal di kawasan PESISIR (laut di timur). Jika terjadi gempa kuat: BERLINDUNG selama guncangan, lalu SEGERA lari ke BUKIT mengikuti rambu evakuasi tanpa menunggu sirine. Waktumu hanya beberapa menit — dan jalanan tidak selalu mulus!',
+      'Kota pesisir dengan laut di timur. Zona hijau HANYA SATU: bukit evakuasi di barat. Tanam 5 sabuk MANGROVE & TANGGUL di garis pantai untuk meredam gelombang, siapkan tas siaga, lalu saat gempa kuat: BERLINDUNG, dan segera ikuti panah jalur evakuasi ke bukit.',
     tinggi: (x, z) => {
       const t = Math.max(0, Math.min(1.4, (-x + 30) / 30))
       return Math.max(
@@ -155,386 +317,275 @@ const MODES = {
         -1 + t * 3 + gauss(x, z, -46, -8, 17, 8) + 0.15 * Math.sin(z * 0.2)
       )
     },
-    rawan: (x) => (x > -2 ? 2 : x > -24 ? 1 : 0),
-    spawn: [-5, 20],
+    rawan: function (x, z) {
+      if (Math.hypot(x + 46, z + 8) < R_EVAK) return 0
+      return x > -2 || this.tinggi(x, z) < 0.6 ? 2 : 1
+    },
+    spawn: [-12.3, 24.5],
     goal: [-46, -8],
     goalLabel: 'Bukit Evakuasi',
   },
 }
 
-const DIFF = {
-  mudah: { label: 'Mudah', tasWaktu: 200, evakWaktu: 150, recWaktu: 130, mult: 0.72, drain: 0.7 },
-  normal: { label: 'Normal', tasWaktu: 140, evakWaktu: 115, recWaktu: 100, mult: 1, drain: 1 },
-  sulit: { label: 'Sulit', tasWaktu: 95, evakWaktu: 85, recWaktu: 75, mult: 1.3, drain: 1.35 },
+// Struktur mitigasi per skenario (fase perencanaan)
+const MITIGASI = {
+  banjir: {
+    nama: 'Sumur Resapan',
+    ikon: 'sumur',
+    petunjuk: 'Tempatkan di permukiman ZONA MERAH (dataran rendah langganan banjir) untuk menyerap limpasan air.',
+    benar: 'Tepat! Sumur resapan menyerap limpasan di dataran rendah.',
+    salah: 'Kurang tepat — resapan paling efektif di zona merah dataran rendah.',
+  },
+  longsor: {
+    nama: 'Terasering',
+    ikon: 'longsor',
+    petunjuk: 'Tempatkan di LERENG sisi timur (zona merah) untuk memperlambat luncuran tanah.',
+    benar: 'Tepat! Terasering menstabilkan lereng.',
+    salah: 'Kurang tepat — terasering harus di lereng zona merah, bukan dataran.',
+  },
+  gempa: {
+    nama: 'Retrofit Bangunan',
+    ikon: 'gempa',
+    petunjuk: 'Klik BANGUNAN di dekat jalur sesar (zona merah) untuk diperkuat strukturnya.',
+    benar: 'Tepat! Bangunan dekat sesar diperkuat.',
+    salah: 'Kurang tepat — prioritaskan bangunan di zona merah dekat sesar.',
+  },
+  tsunami: {
+    nama: 'Mangrove & Tanggul',
+    ikon: 'tsunami',
+    petunjuk: 'Tempatkan di GARIS PANTAI (sisi timur) untuk meredam energi gelombang.',
+    benar: 'Tepat! Sabuk hijau pantai meredam gelombang.',
+    salah: 'Kurang tepat — mangrove/tanggul harus di garis pantai.',
+  },
 }
 
-// Isi tas siaga sesuai anjuran BNPB
+// Sulit 60s, Normal 90s, Mudah 120s untuk tas siaga; evakuasi & pemulihan 30/60/90
+const DIFF = {
+  mudah: { label: 'Mudah', tas: 120, aksi: 90, mult: 0.7, drain: 0.7 },
+  normal: { label: 'Normal', tas: 90, aksi: 60, mult: 1, drain: 1 },
+  sulit: { label: 'Sulit', tas: 60, aksi: 30, mult: 1.45, drain: 1.3 },
+}
+
 const ITEMS = [
   {
     ikon: 'dokumen', nama: 'Dokumen Penting',
-    tanya: 'Mengapa salinan dokumen penting (KK, KTP, ijazah) harus masuk tas siaga?',
-    opsi: [
-      'Untuk dijual jika butuh uang darurat',
-      'Sulit & lama diurus ulang jika hilang, penting untuk bantuan & administrasi pasca bencana',
-      'Sebagai bahan bakar untuk menyalakan api unggun',
-      'Agar tas terlihat lebih penuh dan rapi',
-    ],
+    tanya: 'Kenapa salinan KK/KTP masuk tas siaga?',
+    opsi: ['Untuk dijual', 'Sulit diurus ulang jika hilang', 'Bahan bakar api', 'Pengisi tas'],
     benar: 1,
-    info: 'Simpan salinan dokumen dalam map plastik kedap air. Dokumen dibutuhkan untuk klaim bantuan dan pengurusan administrasi pasca bencana.',
+    info: 'Dokumen jadi dasar bantuan & administrasi pasca bencana.',
   },
   {
     ikon: 'air', nama: 'Air Minum',
-    tanya: 'Berapa lama persediaan air minum yang disarankan BNPB dalam tas siaga?',
-    opsi: ['Cukup untuk 1 jam', 'Cukup untuk ±3 hari', 'Tidak perlu, cari sumber air di jalan', 'Cukup untuk 2 minggu penuh'],
+    tanya: 'Stok air minum yang disarankan BNPB?',
+    opsi: ['1 jam', '±3 hari', 'Tidak perlu', '2 minggu'],
     benar: 1,
-    info: 'Manusia hanya bertahan beberapa hari tanpa air. Siapkan air minum kemasan untuk kebutuhan ±3 hari pertama sebelum bantuan datang.',
+    info: 'Cukup untuk bertahan sebelum bantuan datang.',
   },
   {
-    ikon: 'makanan', nama: 'Makanan Tahan Lama',
-    tanya: 'Jenis makanan apa yang paling tepat untuk tas siaga bencana?',
-    opsi: [
-      'Makanan beku yang harus dimasak dulu',
-      'Buah dan sayur segar',
-      'Makanan siap santap & awet: biskuit, abon, makanan kaleng',
-      'Mi instan mentah tanpa air',
-    ],
+    ikon: 'makanan', nama: 'Makanan',
+    tanya: 'Makanan paling tepat untuk tas siaga?',
+    opsi: ['Makanan beku', 'Sayur segar', 'Siap santap & awet', 'Mi mentah'],
     benar: 2,
-    info: 'Pilih makanan yang tidak mudah basi dan bisa langsung dimakan tanpa dimasak, karena listrik dan gas bisa padam.',
+    info: 'Bisa langsung dimakan saat listrik & gas padam.',
   },
   {
     ikon: 'senter', nama: 'Senter & Baterai',
-    tanya: 'Mengapa senter lebih diandalkan daripada lampu rumah saat bencana?',
-    opsi: [
-      'Cahayanya lebih terang dari lampu rumah',
-      'Listrik biasanya padam saat bencana, senter tetap menyala dengan baterai',
-      'Senter bisa dipakai memanggil pesawat',
-      'Lampu rumah boros energi',
-    ],
+    tanya: 'Kenapa senter penting saat bencana?',
+    opsi: ['Lebih terang', 'Listrik biasanya padam', 'Memanggil pesawat', 'Hemat energi'],
     benar: 1,
-    info: 'Jaringan listrik hampir selalu padam saat bencana besar. Senter + baterai cadangan adalah sumber cahaya paling andal.',
+    info: 'Sumber cahaya andal saat jaringan listrik mati.',
   },
   {
-    ikon: 'p3k', nama: 'Kotak P3K & Obat',
-    tanya: 'Selain perlengkapan P3K umum, apa yang WAJIB ditambahkan sesuai kondisi keluarga?',
-    opsi: [
-      'Obat-obatan pribadi/rutin anggota keluarga (mis. obat darah tinggi, asma)',
-      'Vitamin penambah tinggi badan',
-      'Suplemen olahraga',
-      'Obat tidur agar bisa istirahat',
-    ],
+    ikon: 'p3k', nama: 'P3K & Obat',
+    tanya: 'Yang wajib ditambah selain P3K umum?',
+    opsi: ['Obat rutin keluarga', 'Vitamin peninggi', 'Suplemen gym', 'Obat tidur'],
     benar: 0,
-    info: 'Luka kecil mudah terinfeksi saat bencana, dan penderita penyakit kronis bisa kambuh tanpa obat rutinnya. Sertakan obat pribadi!',
+    info: 'Penyakit kronis bisa kambuh tanpa obat rutinnya.',
   },
   {
     ikon: 'radio', nama: 'Radio / Powerbank',
-    tanya: 'Apa fungsi utama radio baterai atau HP + powerbank saat bencana?',
-    opsi: [
-      'Untuk hiburan mendengarkan musik',
-      'Memantau informasi resmi (BMKG/BPBD) & menghubungi keluarga',
-      'Untuk bermain game menunggu bantuan',
-      'Menakut-nakuti hewan liar dengan suara keras',
-    ],
+    tanya: 'Fungsi utama radio/HP saat bencana?',
+    opsi: ['Hiburan musik', 'Pantau info resmi BMKG/BPBD', 'Main game', 'Usir hewan'],
     benar: 1,
-    info: 'Informasi resmi dari BMKG/BPBD mencegah kita termakan hoaks dan membantu mengambil keputusan evakuasi yang tepat.',
+    info: 'Info resmi mencegah hoaks & salah keputusan.',
   },
   {
     ikon: 'peluit', nama: 'Peluit',
-    tanya: 'Mengapa peluit lebih efektif daripada berteriak saat terjebak reruntuhan?',
-    opsi: [
-      'Suara peluit nyaring & hemat tenaga, teriakan cepat menghabiskan energi',
-      'Peluit bisa mengusir nyamuk',
-      'Tim SAR hanya merespons suara peluit',
-      'Berteriak dilarang saat bencana',
-    ],
+    tanya: 'Kenapa peluit, bukan berteriak?',
+    opsi: ['Nyaring & hemat tenaga', 'Usir nyamuk', 'Aturan SAR', 'Teriak dilarang'],
     benar: 0,
-    info: 'Meniup peluit jauh lebih hemat energi daripada berteriak, dan bunyinya menembus reruntuhan lebih baik. Alat kecil penyelamat nyawa.',
+    info: 'Bunyinya menembus reruntuhan tanpa menguras energi.',
   },
   {
     ikon: 'pakaian', nama: 'Pakaian & Selimut',
-    tanya: 'Mengapa pakaian ganti dan jaket/selimut penting dalam tas siaga?',
-    opsi: [
-      'Agar tetap tampil modis di pengungsian',
-      'Untuk dijadikan bendera tanda bahaya',
-      'Mencegah hipotermia — tubuh basah & kedinginan bisa berakibat fatal',
-      'Sebagai alas duduk di tenda',
-    ],
+    tanya: 'Fungsi pakaian ganti & selimut?',
+    opsi: ['Tetap modis', 'Bendera darurat', 'Cegah hipotermia', 'Alas duduk'],
     benar: 2,
-    info: 'Tubuh yang basah dan kedinginan berisiko hipotermia, terutama bagi anak-anak dan lansia. Pakaian kering menjaga suhu tubuh.',
+    info: 'Tubuh basah & dingin bisa berakibat fatal.',
   },
   {
     ikon: 'uang', nama: 'Uang Tunai',
-    tanya: 'Mengapa perlu menyiapkan uang TUNAI, bukan hanya kartu ATM/e-wallet?',
-    opsi: [
-      'Uang tunai lebih ringan dibawa',
-      'ATM & jaringan pembayaran digital sering mati saat bencana',
-      'Harga barang lebih murah jika bayar tunai',
-      'Bank tutup selamanya setelah bencana',
-    ],
+    tanya: 'Kenapa tunai, bukan hanya ATM?',
+    opsi: ['Lebih ringan', 'ATM mati saat listrik padam', 'Harga murah', 'Bank tutup'],
     benar: 1,
-    info: 'Saat listrik dan jaringan internet padam, ATM dan pembayaran digital tidak bisa dipakai. Uang tunai secukupnya sangat membantu.',
+    info: 'Pembayaran digital lumpuh tanpa listrik & internet.',
   },
   {
     ikon: 'masker', nama: 'Masker',
-    tanya: 'Apa fungsi masker dalam tas siaga bencana?',
-    opsi: [
-      'Menyaring udara kotor: debu reruntuhan, abu, dan mencegah penularan penyakit di pengungsian',
-      'Menyamarkan wajah dari kamera',
-      'Menghangatkan wajah saat malam',
-      'Syarat wajib masuk tenda pengungsian',
-    ],
+    tanya: 'Fungsi masker pasca bencana?',
+    opsi: ['Saring debu & cegah penyakit', 'Samarkan wajah', 'Penghangat', 'Syarat tenda'],
     benar: 0,
-    info: 'Udara pasca bencana penuh debu/abu, dan pengungsian yang padat rawan penularan penyakit pernapasan. Masker melindungi keduanya.',
+    info: 'Udara berdebu & pengungsian padat rawan penularan.',
   },
 ]
 
-// Tugas pemulihan (PASCA BENCANA) per mode
 const RECOVERY = {
   banjir: [
     {
       ikon: 'rumah', judul: 'Rumah Terendam',
-      tanya: 'Air sudah surut dan kamu ingin masuk rumah. Apa langkah PERTAMA yang aman?',
-      opsi: [
-        'Langsung masuk dan nyalakan lampu untuk memeriksa',
-        'Pastikan aliran listrik DIPADAMKAN dari meteran sebelum masuk',
-        'Nyalakan kompor untuk mengeringkan ruangan',
-        'Tunggu 1 bulan tanpa melakukan apa pun',
-      ],
+      tanya: 'Langkah pertama sebelum masuk rumah bekas banjir?',
+      opsi: ['Langsung masuk', 'Padamkan listrik dari meteran', 'Nyalakan kompor', 'Tunggu sebulan'],
       benar: 1,
-      info: 'Instalasi listrik yang terendam bisa menyetrum. Padamkan listrik dari meteran/MCB dulu, dan periksa bersama petugas bila ragu.',
+      info: 'Instalasi listrik basah bisa menyetrum.',
     },
     {
-      ikon: 'peringatan', judul: 'Bersih-Bersih Lumpur',
-      tanya: 'Apa yang wajib dipakai saat membersihkan lumpur sisa banjir?',
-      opsi: [
-        'Sandal jepit agar tidak licin',
-        'Tidak perlu alat apa pun, yang penting cepat',
-        'Sepatu bot & sarung tangan — lumpur banjir rawan bakteri leptospirosis',
-        'Kacamata renang',
-      ],
+      ikon: 'peringatan', judul: 'Bersih Lumpur',
+      tanya: 'Wajib dipakai saat bersihkan lumpur banjir?',
+      opsi: ['Sandal jepit', 'Tanpa alat', 'Sepatu bot & sarung tangan', 'Kacamata renang'],
       benar: 2,
-      info: 'Air dan lumpur banjir dapat mengandung bakteri leptospirosis dari kencing tikus yang masuk lewat luka kecil di kulit. Lindungi kaki dan tanganmu!',
+      info: 'Lumpur banjir rawan bakteri leptospirosis.',
     },
     {
-      ikon: 'air', judul: 'Sumber Air Tercemar',
-      tanya: 'Sumur warga tercampur air banjir. Bagaimana mendapat air minum yang aman?',
-      opsi: [
-        'Minum langsung, air sumur selalu bersih',
-        'Rebus air sampai mendidih atau gunakan air kemasan/bantuan',
-        'Saring dengan kain lalu langsung minum',
-        'Tambahkan garam agar kumannya mati',
-      ],
+      ikon: 'air', judul: 'Air Tercemar',
+      tanya: 'Cara dapat air minum aman pasca banjir?',
+      opsi: ['Minum langsung', 'Rebus / air kemasan posko', 'Saring kain saja', 'Tambah garam'],
       benar: 1,
-      info: 'Air yang tercemar banjir bisa membawa kuman diare & penyakit kulit. Rebus hingga mendidih, atau gunakan air kemasan dari posko bantuan.',
+      info: 'Air tercemar membawa kuman diare.',
     },
     {
-      ikon: 'dokumen', judul: 'Pendataan Kerusakan',
-      tanya: 'Rumah dan fasilitas umum rusak. Ke mana kerusakan sebaiknya dilaporkan?',
-      opsi: [
-        'Ke media sosial agar viral',
-        'Tidak perlu dilaporkan, perbaiki sendiri',
-        'Ke RT/kelurahan dan BPBD agar terdata untuk bantuan perbaikan',
-        'Ke stasiun televisi',
-      ],
+      ikon: 'dokumen', judul: 'Lapor Kerusakan',
+      tanya: 'Kerusakan rumah dilaporkan ke mana?',
+      opsi: ['Media sosial', 'Perbaiki sendiri', 'RT/kelurahan & BPBD', 'Stasiun TV'],
       benar: 2,
-      info: 'Pendataan resmi melalui RT/kelurahan dan BPBD adalah dasar penyaluran bantuan perbaikan (rehabilitasi & rekonstruksi).',
+      info: 'Pendataan resmi = dasar bantuan perbaikan.',
     },
     {
-      ikon: 'p3k', judul: 'Kesehatan Pasca Banjir',
-      tanya: 'Beberapa hari setelah banjir, penyakit apa yang paling perlu diwaspadai?',
-      opsi: [
-        'Diare, leptospirosis, dan penyakit kulit',
-        'Patah tulang',
-        'Sakit gigi',
-        'Rabun jauh',
-      ],
+      ikon: 'p3k', judul: 'Kesehatan',
+      tanya: 'Penyakit yang diwaspadai pasca banjir?',
+      opsi: ['Diare & leptospirosis', 'Patah tulang', 'Sakit gigi', 'Rabun jauh'],
       benar: 0,
-      info: 'Genangan dan sanitasi buruk memicu diare, leptospirosis, DBD, dan penyakit kulit. Jaga kebersihan dan segera periksa bila demam.',
+      info: 'Genangan & sanitasi buruk memicu penyakit.',
     },
   ],
   longsor: [
     {
       ikon: 'peringatan', judul: 'Zona Longsoran',
-      tanya: 'Setelah longsor berhenti, bolehkah segera kembali ke rumah di zona longsoran?',
-      opsi: [
-        'Boleh, longsor tidak akan terulang',
-        'JANGAN — longsor susulan sangat mungkin terjadi, tunggu pernyataan aman dari petugas',
-        'Boleh asal berjalan pelan-pelan',
-        'Boleh jika hujan sudah berhenti 10 menit',
-      ],
+      tanya: 'Boleh langsung kembali ke zona longsor?',
+      opsi: ['Boleh', 'Jangan — tunggu pernyataan aman petugas', 'Boleh pelan-pelan', 'Boleh jika reda'],
       benar: 1,
-      info: 'Lereng yang sudah bergerak sangat labil. Longsor susulan sering terjadi. Tunggu pemeriksaan dan pernyataan aman dari BPBD.',
+      info: 'Longsor susulan sangat mungkin terjadi.',
     },
     {
-      ikon: 'perbaikan', judul: 'Jalan Tertutup Material',
-      tanya: 'Jalan desa tertutup material longsor. Tindakan yang tepat adalah…',
-      opsi: [
-        'Membersihkan sendirian dengan tangan kosong',
-        'Melaporkan ke BPBD/PU dan memasang rambu peringatan sementara',
-        'Membakar material agar cepat hilang',
-        'Membiarkannya saja selamanya',
-      ],
+      ikon: 'perbaikan', judul: 'Jalan Tertimbun',
+      tanya: 'Jalan tertutup material longsor, sebaiknya?',
+      opsi: ['Bersihkan sendiri', 'Lapor BPBD/PU & pasang rambu', 'Bakar material', 'Biarkan'],
       benar: 1,
-      info: 'Pembersihan material longsor butuh alat berat dan penilaian kestabilan lereng. Laporkan, dan pasang tanda agar warga tidak melintas.',
+      info: 'Butuh alat berat & penilaian kestabilan lereng.',
     },
     {
       ikon: 'longsor', judul: 'Lereng Gundul',
-      tanya: 'Agar lereng tidak mudah longsor lagi, upaya jangka panjang yang tepat adalah…',
-      opsi: [
-        'Menanami lereng dengan vegetasi berakar kuat & memperbaiki drainase',
-        'Menyiram lereng setiap hari agar padat',
-        'Membangun lebih banyak rumah di lereng',
-        'Mengecat lereng dengan semen tipis',
-      ],
+      tanya: 'Cegah longsor jangka panjang?',
+      opsi: ['Tanam vegetasi & perbaiki drainase', 'Siram tiap hari', 'Bangun rumah lagi', 'Cat semen'],
       benar: 0,
-      info: 'Akar tanaman mengikat tanah dan drainase yang baik mencegah lereng jenuh air — dua kunci mitigasi longsor jangka panjang.',
+      info: 'Akar mengikat tanah, drainase cegah jenuh air.',
     },
     {
-      ikon: 'rumah', judul: 'Rumah di Zona Merah',
-      tanya: 'Rumah warga berada tepat di jalur longsoran. Solusi paling aman jangka panjang?',
-      opsi: [
-        'Relokasi ke tempat lebih aman sesuai arahan pemerintah',
-        'Menambah lantai rumah jadi 3 tingkat',
-        'Memasang pagar tinggi',
-        'Tetap tinggal sambil berjaga bergantian',
-      ],
+      ikon: 'rumah', judul: 'Rumah Zona Merah',
+      tanya: 'Solusi rumah di jalur longsor aktif?',
+      opsi: ['Relokasi sesuai arahan pemerintah', 'Tambah lantai', 'Pagar tinggi', 'Jaga bergantian'],
       benar: 0,
-      info: 'Untuk permukiman di jalur longsor aktif, relokasi adalah pilihan paling aman. Peta rawan bencana membantu menentukan lokasi baru.',
+      info: 'Relokasi = pilihan paling aman jangka panjang.',
     },
     {
       ikon: 'dokumen', judul: 'Pendataan Warga',
-      tanya: 'Apa manfaat pendataan warga terdampak setelah bencana?',
-      opsi: [
-        'Agar bisa difoto wartawan',
-        'Memastikan semua warga selamat & bantuan tersalurkan tepat sasaran',
-        'Untuk menentukan pemenang undian',
-        'Tidak ada manfaatnya',
-      ],
+      tanya: 'Manfaat pendataan warga terdampak?',
+      opsi: ['Difoto wartawan', 'Bantuan tepat sasaran', 'Undian', 'Tidak ada'],
       benar: 1,
-      info: 'Pendataan memastikan tidak ada korban yang terlewat, dan menjadi dasar distribusi bantuan logistik, hunian sementara, dan perbaikan.',
+      info: 'Memastikan tak ada korban terlewat.',
     },
   ],
   gempa: [
     {
       ikon: 'gempa', judul: 'Bangunan Retak',
-      tanya: 'Rumahmu retak-retak setelah gempa. Apa yang harus dilakukan sebelum masuk?',
-      opsi: [
-        'Langsung masuk mengambil barang berharga',
-        'Periksa kondisi struktur dari luar; jangan masuk bila retak parah — tunggu penilaian petugas',
-        'Masuk sambil memakai helm saja',
-        'Menutup retakan dengan lakban',
-      ],
+      tanya: 'Rumah retak pasca gempa, sebaiknya?',
+      opsi: ['Langsung masuk', 'Tunggu penilaian petugas', 'Pakai helm saja', 'Lakban retakan'],
       benar: 1,
-      info: 'Bangunan yang retak bisa runtuh saat gempa susulan. Tunggu penilaian kelayakan dari petugas sebelum masuk kembali.',
+      info: 'Bangunan retak bisa roboh saat gempa susulan.',
     },
     {
-      ikon: 'peringatan', judul: 'Bau Gas Bocor',
-      tanya: 'Tercium bau gas di dapur setelah gempa. Tindakan yang BENAR adalah…',
-      opsi: [
-        'Menyalakan lampu untuk memeriksa sumber bau',
-        'Menyalakan korek api untuk melihat kebocoran',
-        'Jangan nyalakan api/listrik, buka ventilasi, tutup regulator, menjauh',
-        'Menyemprotkan pewangi ruangan',
-      ],
+      ikon: 'peringatan', judul: 'Gas Bocor',
+      tanya: 'Tercium gas bocor, yang benar?',
+      opsi: ['Nyalakan lampu', 'Nyalakan korek', 'Jangan nyalakan api, buka ventilasi', 'Semprot pewangi'],
       benar: 2,
-      info: 'Percikan listrik atau api sekecil apa pun dapat memicu ledakan gas. Amankan regulator, buka jendela, dan menjauhlah.',
+      info: 'Percikan sekecil apa pun bisa memicu ledakan.',
     },
     {
-      ikon: 'radio', judul: 'Kabar Simpang Siur',
-      tanya: 'Beredar pesan berantai "akan ada gempa lebih besar jam 9 malam". Sikapmu?',
-      opsi: [
-        'Sebarkan ke semua grup agar semua siaga',
-        'Cek kebenarannya HANYA dari kanal resmi BMKG/BPBD — waktu gempa tidak bisa diprediksi',
-        'Percaya karena pengirimnya teman dekat',
-        'Panik dan mengungsi ke luar kota',
-      ],
+      ikon: 'radio', judul: 'Kabar Hoaks',
+      tanya: '"Akan ada gempa besar jam 9" — sikapmu?',
+      opsi: ['Sebar ke grup', 'Cek hanya kanal resmi BMKG', 'Percaya teman', 'Panik mengungsi'],
       benar: 1,
-      info: 'Hingga kini TIDAK ADA teknologi yang bisa memprediksi waktu gempa. Informasi resmi hanya dari BMKG/BPBD — jangan sebarkan hoaks.',
+      info: 'Waktu gempa tidak bisa diprediksi siapa pun.',
     },
     {
       ikon: 'p3k', judul: 'Warga Terluka',
-      tanya: 'Ada tetangga terluka ringan tertimpa reruntuhan. Bantuan awal yang tepat?',
-      opsi: [
-        'Berikan pertolongan pertama (P3K) & hubungi petugas medis/SAR untuk luka berat',
-        'Memindahkannya kasar agar cepat',
-        'Memberi minum kopi panas',
-        'Menunggu tanpa melakukan apa pun',
-      ],
+      tanya: 'Tetangga luka ringan, bantuan awal?',
+      opsi: ['P3K & hubungi medis', 'Pindahkan kasar', 'Beri kopi', 'Diam saja'],
       benar: 0,
-      info: 'Gunakan isi tas siagamu! P3K untuk luka ringan; untuk korban terjepit/luka berat, jangan pindahkan sembarangan — panggil tim SAR/medis.',
+      info: 'Korban terjepit jangan dipindah sembarangan.',
     },
     {
-      ikon: 'dokumen', judul: 'Pendataan Kerusakan',
-      tanya: 'Banyak rumah rusak di kampungmu. Agar dapat bantuan rehabilitasi, kerusakan dilaporkan ke…',
-      opsi: [
-        'RT/kelurahan dan BPBD untuk pendataan resmi',
-        'Grup media sosial saja',
-        'Tidak perlu dilaporkan',
-        'Perusahaan asuransi milik tetangga',
-      ],
+      ikon: 'dokumen', judul: 'Lapor Kerusakan',
+      tanya: 'Agar dapat bantuan rehabilitasi, lapor ke?',
+      opsi: ['RT/kelurahan & BPBD', 'Media sosial', 'Tidak perlu', 'Asuransi tetangga'],
       benar: 0,
-      info: 'Data kerusakan dari RT/kelurahan/BPBD menjadi dasar program rehabilitasi dan rekonstruksi pemerintah.',
+      info: 'Data resmi = dasar program rekonstruksi.',
     },
   ],
   tsunami: [
     {
       ikon: 'tsunami', judul: 'Kembali ke Pesisir',
-      tanya: 'Gelombang pertama sudah lewat. Kapan boleh kembali ke kawasan pesisir?',
-      opsi: [
-        'Segera setelah air surut pertama kali',
-        'Setelah ada pernyataan RESMI "ancaman berakhir" dari BMKG/BPBD — tsunami bisa datang berkali-kali',
-        'Setelah 15 menit menunggu',
-        'Saat melihat orang lain sudah turun',
-      ],
+      tanya: 'Kapan boleh kembali ke pesisir?',
+      opsi: ['Saat air surut pertama', 'Setelah pernyataan resmi BMKG', 'Setelah 15 menit', 'Ikut orang lain'],
       benar: 1,
-      info: 'Tsunami terdiri dari BEBERAPA gelombang dan gelombang berikutnya bisa lebih besar. Tunggu pernyataan resmi ancaman berakhir.',
+      info: 'Gelombang berikutnya bisa lebih besar.',
     },
     {
       ikon: 'gempa', judul: 'Bangunan Terdampak',
-      tanya: 'Bangunan yang diterjang tsunami tampak masih berdiri. Amankah langsung dimasuki?',
-      opsi: [
-        'Aman, karena masih berdiri',
-        'Tidak — struktur bisa keropos & bisa roboh; tunggu pemeriksaan petugas',
-        'Aman jika masuk lewat jendela',
-        'Aman jika hanya 5 menit',
-      ],
+      tanya: 'Bangunan bekas terjangan tampak utuh, aman?',
+      opsi: ['Aman', 'Tidak — tunggu pemeriksaan petugas', 'Lewat jendela', 'Aman 5 menit'],
       benar: 1,
-      info: 'Terjangan air berkecepatan tinggi merusak struktur bangunan meski tampak utuh. Tunggu penilaian kelayakan dari petugas.',
+      info: 'Struktur bisa keropos meski tampak berdiri.',
     },
     {
       ikon: 'air', judul: 'Air & Sanitasi',
-      tanya: 'Pasca tsunami, sumber air payau/tercemar. Yang paling tepat dilakukan…',
-      opsi: [
-        'Gunakan air bersih dari posko; rebus air sebelum diminum; jaga sanitasi',
-        'Minum air laut karena melimpah',
-        'Mandi di genangan bekas tsunami',
-        'Tidak minum sama sekali selama seminggu',
-      ],
+      tanya: 'Sumber air payau/tercemar, sebaiknya?',
+      opsi: ['Air bersih posko & rebus', 'Minum air laut', 'Mandi genangan', 'Tidak minum'],
       benar: 0,
-      info: 'Air bekas tsunami bercampur air laut, lumpur, dan limbah. Gunakan pasokan air bersih posko dan selalu rebus sebelum diminum.',
+      info: 'Air bekas tsunami bercampur limbah.',
     },
     {
-      ikon: 'hati', judul: 'Pemulihan Psikologis',
-      tanya: 'Adik kelasmu ketakutan dan sulit tidur setelah tsunami. Bantuan yang tepat?',
-      opsi: [
-        'Menyuruhnya melupakan kejadian itu sendirian',
-        'Menemani, mengajak bicara/bermain, dan menghubungkan ke layanan dukungan psikososial',
-        'Menakut-nakutinya agar terbiasa',
-        'Memberinya tontonan berita bencana terus-menerus',
-      ],
+      ikon: 'hati', judul: 'Pemulihan Psikis',
+      tanya: 'Adik trauma & sulit tidur, bantuan tepat?',
+      opsi: ['Suruh lupakan', 'Temani & dukungan psikososial', 'Takut-takuti', 'Tonton berita terus'],
       benar: 1,
-      info: 'Pemulihan bukan hanya fisik. Dukungan psikososial (trauma healing) membantu penyintas, terutama anak-anak, pulih dari trauma.',
+      info: 'Trauma healing bagian penting pemulihan.',
     },
     {
-      ikon: 'dokumen', judul: 'Pendataan & Bantuan',
-      tanya: 'Agar bantuan hunian & perbaikan tepat sasaran, warga terdampak harus…',
-      opsi: [
-        'Terdata resmi melalui RT/kelurahan dan BPBD',
-        'Menunggu di rumah masing-masing tanpa lapor',
-        'Mendaftar lewat undian',
-        'Pindah kota tanpa memberi tahu siapa pun',
-      ],
+      ikon: 'dokumen', judul: 'Pendataan',
+      tanya: 'Agar bantuan hunian tepat sasaran?',
+      opsi: ['Terdata di RT/kelurahan & BPBD', 'Diam di rumah', 'Ikut undian', 'Pindah diam-diam'],
       benar: 0,
-      info: 'Pendataan resmi adalah pintu masuk program bantuan: hunian sementara, jaminan hidup, hingga rekonstruksi rumah.',
+      info: 'Pendataan = pintu masuk semua program bantuan.',
     },
   ],
 }
@@ -620,31 +671,25 @@ function buatKarakter({ gender, kulit }) {
   return grp
 }
 
-function buatRumah(warna = 0xf5e6c8, skala = 1) {
+const WARNA_RUMAH = [0xe8dcc0, 0xd9c8a8, 0xcfd8dc, 0xe0cfc0, 0xd4c19a, 0xc9d6c0]
+const WARNA_ATAP = [0xb03a2e, 0x8d4a2f, 0x6d4c41, 0x37474f, 0x7b3f00]
+function buatRumahWarga(seed = 0) {
   const grp = new THREE.Group()
+  const w = 3.6 + (seed % 3) * 0.5
+  const d = 3.0 + ((seed * 7) % 3) * 0.5
   const dinding = new THREE.Mesh(
-    new THREE.BoxGeometry(4 * skala, 2.6 * skala, 3.4 * skala),
-    new THREE.MeshLambertMaterial({ color: warna })
+    new THREE.BoxGeometry(w, 2.4, d),
+    new THREE.MeshLambertMaterial({ color: WARNA_RUMAH[seed % WARNA_RUMAH.length] })
   )
-  dinding.position.y = 1.3 * skala
+  dinding.position.y = 1.2
   const atap = new THREE.Mesh(
-    new THREE.ConeGeometry(3.3 * skala, 1.9 * skala, 4),
-    new THREE.MeshLambertMaterial({ color: 0xb03a2e })
+    new THREE.ConeGeometry(Math.max(w, d) * 0.82, 1.7, 4),
+    new THREE.MeshLambertMaterial({ color: WARNA_ATAP[(seed * 3) % WARNA_ATAP.length] })
   )
-  atap.position.y = 3.55 * skala
+  atap.position.y = 3.2
   atap.rotation.y = Math.PI / 4
-  const pintu = new THREE.Mesh(
-    new THREE.BoxGeometry(0.9 * skala, 1.5 * skala, 0.1),
-    new THREE.MeshLambertMaterial({ color: 0x6e3b1f })
-  )
-  pintu.position.set(0, 0.75 * skala, 1.72 * skala)
-  const jendela = new THREE.Mesh(
-    new THREE.BoxGeometry(1 * skala, 0.8 * skala, 0.08),
-    new THREE.MeshLambertMaterial({ color: 0xaed6f1, emissive: 0x223344 })
-  )
-  jendela.position.set(1.2 * skala, 1.5 * skala, 1.72 * skala)
-  grp.add(dinding, atap, pintu, jendela)
-  grp.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
+  grp.add(dinding, atap)
+  dinding.castShadow = true
   return grp
 }
 
@@ -661,43 +706,146 @@ function buatPohon() {
   )
   daun.position.y = 2.8
   grp.add(batang, daun)
-  grp.traverse((o) => { if (o.isMesh) o.castShadow = true })
+  daun.castShadow = true
   return grp
 }
 
-function buatPohonTumbang(panjang = 6) {
+function buatPenutupJalan(mode) {
   const grp = new THREE.Group()
-  const batang = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.45, 0.6, panjang, 8),
-    new THREE.MeshLambertMaterial({ color: 0x5e3f28 })
-  )
-  batang.rotation.z = Math.PI / 2
-  batang.position.y = 0.55
-  const daun = new THREE.Mesh(
-    new THREE.SphereGeometry(1.5, 8, 6),
-    new THREE.MeshLambertMaterial({ color: 0x3a6b45 })
-  )
-  daun.position.set(panjang / 2, 0.9, 0)
-  grp.add(batang, daun)
-  grp.traverse((o) => { if (o.isMesh) o.castShadow = true })
+  if (mode === 'banjir' || mode === 'tsunami') {
+    const batang = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.5, 0.65, 6.5, 8),
+      new THREE.MeshLambertMaterial({ color: 0x5e3f28 })
+    )
+    batang.rotation.z = Math.PI / 2
+    batang.position.y = 0.6
+    const daun = new THREE.Mesh(
+      new THREE.SphereGeometry(1.6, 8, 6),
+      new THREE.MeshLambertMaterial({ color: 0x3a6b45 })
+    )
+    daun.position.set(3.2, 1, 0)
+    grp.add(batang, daun)
+  } else {
+    const warna = mode === 'gempa' ? 0x8d8d8d : 0x6b4423
+    for (let i = 0; i < 5; i++) {
+      const b = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.9 + Math.random() * 0.9, 0),
+        new THREE.MeshLambertMaterial({ color: warna })
+      )
+      b.position.set((Math.random() - 0.5) * 4.5, 0.5 + Math.random() * 0.8, (Math.random() - 0.5) * 4.5)
+      b.rotation.set(Math.random(), Math.random(), Math.random())
+      b.castShadow = true
+      grp.add(b)
+    }
+  }
   return grp
 }
 
-function buatPagar(panjang = 12) {
+function buatGenangan() {
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(4.2, 24),
+    new THREE.MeshPhongMaterial({ color: 0x2f6db3, transparent: true, opacity: 0.8, shininess: 90 })
+  )
+  disc.rotation.x = -Math.PI / 2
+  return disc
+}
+
+// ---- struktur mitigasi (fase perencanaan) ----
+function buatStrukturMitigasi(mode) {
   const grp = new THREE.Group()
-  const mat = new THREE.MeshLambertMaterial({ color: 0x8a6a45 })
-  const papan = new THREE.Mesh(new THREE.BoxGeometry(panjang, 0.35, 0.14), mat)
-  papan.position.y = 1.15
-  const papan2 = papan.clone(); papan2.position.y = 0.65
-  grp.add(papan, papan2)
-  const n = Math.floor(panjang / 1.6)
-  for (let i = 0; i <= n; i++) {
-    const tiang = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.6, 0.22), mat)
-    tiang.position.set(-panjang / 2 + (i * panjang) / n, 0.8, 0)
-    grp.add(tiang)
+  if (mode === 'banjir') {
+    const bibir = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.2, 1.3, 0.5, 16),
+      new THREE.MeshLambertMaterial({ color: 0xb0b7bd })
+    )
+    bibir.position.y = 0.25
+    const lubang = new THREE.Mesh(
+      new THREE.CircleGeometry(0.85, 16),
+      new THREE.MeshBasicMaterial({ color: 0x16324a })
+    )
+    lubang.rotation.x = -Math.PI / 2
+    lubang.position.y = 0.51
+    grp.add(bibir, lubang)
+  } else if (mode === 'tsunami') {
+    const tanggul = new THREE.Mesh(
+      new THREE.BoxGeometry(6, 1.1, 1),
+      new THREE.MeshLambertMaterial({ color: 0x9aa3ab })
+    )
+    tanggul.position.y = 0.55
+    grp.add(tanggul)
+    for (let i = -2; i <= 2; i++) {
+      const akar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.16, 1, 5),
+        new THREE.MeshLambertMaterial({ color: 0x5e4a30 })
+      )
+      akar.position.set(i * 1.2, 0.9, 1.2)
+      const daun = new THREE.Mesh(
+        new THREE.SphereGeometry(0.65, 7, 5),
+        new THREE.MeshLambertMaterial({ color: 0x2f7d4f })
+      )
+      daun.position.set(i * 1.2, 1.7, 1.2)
+      grp.add(akar, daun)
+    }
+  } else if (mode === 'longsor') {
+    for (let i = 0; i < 3; i++) {
+      const step = new THREE.Mesh(
+        new THREE.BoxGeometry(5.5 - i, 0.5, 1.6),
+        new THREE.MeshLambertMaterial({ color: 0x7c9a5a })
+      )
+      step.position.set(0, 0.25 + i * 0.55, -i * 1.3)
+      const tepi = new THREE.Mesh(
+        new THREE.BoxGeometry(5.5 - i, 0.6, 0.22),
+        new THREE.MeshLambertMaterial({ color: 0x5e4a30 })
+      )
+      tepi.position.set(0, 0.3 + i * 0.55, -i * 1.3 + 0.8)
+      grp.add(step, tepi)
+    }
+  } else {
+    // retrofit: rangka baja di sekeliling bangunan
+    const mat = new THREE.MeshLambertMaterial({ color: 0x4f6d8c })
+    const posisi = [[-2, -2], [2, -2], [-2, 2], [2, 2]]
+    for (const [ox, oz] of posisi) {
+      const tiang = new THREE.Mesh(new THREE.BoxGeometry(0.28, 3.6, 0.28), mat)
+      tiang.position.set(ox, 1.8, oz)
+      grp.add(tiang)
+    }
+    for (const rot of [0, Math.PI / 2]) {
+      const balok = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.24, 0.24), mat)
+      balok.position.y = 3.4
+      balok.rotation.y = rot
+      grp.add(balok)
+    }
   }
   grp.traverse((o) => { if (o.isMesh) o.castShadow = true })
   return grp
+}
+
+// panah penunjuk jalur evakuasi di permukaan jalan
+function buatPanahJalan() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 96
+  const g = c.getContext('2d')
+  g.strokeStyle = '#16a34a'
+  g.lineWidth = 15
+  g.lineCap = 'round'
+  g.lineJoin = 'round'
+  g.beginPath()
+  g.moveTo(14, 48); g.lineTo(74, 48)
+  g.moveTo(52, 24); g.lineTo(78, 48); g.lineTo(52, 72)
+  g.stroke()
+  g.strokeStyle = '#ffffff'
+  g.lineWidth = 7
+  g.beginPath()
+  g.moveTo(14, 48); g.lineTo(74, 48)
+  g.moveTo(52, 24); g.lineTo(78, 48); g.lineTo(52, 72)
+  g.stroke()
+  const geo = new THREE.PlaneGeometry(3.4, 3.4)
+  geo.rotateX(-Math.PI / 2)
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false })
+  )
+  return mesh
 }
 
 function buatRambu() {
@@ -716,7 +864,6 @@ function buatRambu() {
   g.font = 'bold 26px sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle'
   g.fillText('JALUR', 16, 30)
   g.fillText('EVAKUASI', 16, 62)
-  // panah vektor
   g.strokeStyle = '#fff'; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round'
   g.beginPath()
   g.moveTo(168, 48); g.lineTo(232, 48)
@@ -763,6 +910,15 @@ function buatGoal(label) {
   return grp
 }
 
+function jarakKeSegmen(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax, dz = bz - az
+  const l2 = dx * dx + dz * dz
+  if (l2 === 0) return Math.hypot(px - ax, pz - az)
+  let t = ((px - ax) * dx + (pz - az) * dz) / l2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (ax + t * dx), pz - (az + t * dz))
+}
+
 // ---------------- KOMPONEN UTAMA ----------------
 export default function GameBencana() {
   const [layar, setLayar] = useState('menu')
@@ -772,11 +928,11 @@ export default function GameBencana() {
   const [kulit, setKulit] = useState(KULIT[0])
   const [runId, setRunId] = useState(0)
 
-  const [fase, setFase] = useState('rumah')
+  const [fase, setFase] = useState('mitigasi')
   const [hp, setHp] = useState(100)
   const [timer, setTimer] = useState(0)
   const [pesan, setPesan] = useState('')
-  const [zonaSkrg, setZonaSkrg] = useState(0)
+  const [mitCount, setMitCount] = useState(0)
   const [tasIsi, setTasIsi] = useState([])
   const [recSelesai, setRecSelesai] = useState(0)
   const [kuis, setKuis] = useState(null)
@@ -791,22 +947,25 @@ export default function GameBencana() {
   const crouchRef = useRef(false)
   const pausedRef = useRef(false)
   const targetRef = useRef(null)
+  const kuisTimerRef = useRef(null)
 
   const M = MODES[mode]
   const D = DIFF[tingkat]
-  const TAHAP = { rumah: 'PRA BENCANA', tas: 'PRA BENCANA', bencana: 'SAAT BENCANA', pemulihan: 'PASCA BENCANA' }
+  const MIT = MITIGASI[mode]
+  const TAHAP = { mitigasi: 'PRA BENCANA', tas: 'PRA BENCANA', bencana: 'SAAT BENCANA', pemulihan: 'PASCA BENCANA' }
 
   const mulai = () => {
-    setFase('rumah'); setHp(100); setTimer(0); setTasIsi([]); setRecSelesai(0)
+    setFase('mitigasi'); setHp(100); setTimer(0); setMitCount(0); setTasIsi([]); setRecSelesai(0)
     setKuis(null); setHasil(null); setPesan(''); setInstruksi('')
     pausedRef.current = false
+    if (kuisTimerRef.current) clearTimeout(kuisTimerRef.current)
     setBriefFase({
       judul: `Misi: Selamat dari ${M.nama}`,
       isi: M.briefing,
       langkah: [
-        'PRA BENCANA — (1) pilih lokasi rumah dengan membaca peta rawan (hijau aman, kuning waspada, merah rawan), lalu (2) isi tas siaga: jawab kuis tiap barang sebelum waktu habis.',
-        'SAAT BENCANA — evakuasi berbatas waktu. Ikuti rambu JALUR EVAKUASI, hindari bahaya, pohon tumbang, dan jalan buntu.',
-        'PASCA BENCANA — kembali ke permukiman dan tangani 5 titik infrastruktur rusak dengan keputusan pemulihan yang benar, sebelum waktu habis.',
+        `PRA BENCANA — (1) Mitigasi struktural: klik peta untuk menempatkan 5 ${MIT.nama} di lokasi yang tepat (mode perencanaan, karakter belum muncul). (2) Karakter muncul dan mengisi tas siaga dalam ${D.tas} detik — semua barang tersebar di zona merah!`,
+        `SAAT BENCANA — kamu memulai dari ZONA SANGAT RAWAN. Hanya ada SATU area evakuasi (zona hijau). Ikuti panah hijau di jalan & rambu, hindari ruas terputus (lihat minimap), waktumu ${D.aksi} detik.`,
+        `PASCA BENCANA — tangani 5 titik infrastruktur rusak dalam ${D.aksi} detik.`,
       ],
       tombol: 'Mulai Bermain',
       aksi: () => setBriefFase(null),
@@ -817,20 +976,21 @@ export default function GameBencana() {
 
   const jawabKuis = (idx) => {
     if (!kuis || kuis.jawab != null) return
-    setKuis({ ...kuis, jawab: idx })
-  }
-  const tutupKuis = () => {
-    if (!kuis) return
-    const benar = kuis.jawab === kuis.item.benar
-    if (kuis.tipe === 'tas') {
-      apiRef.current.selesaiKuis?.(kuis.item, benar)
-      setTasIsi((t) => [...t, { ...kuis.item, benar }])
-    } else {
-      apiRef.current.selesaiRec?.(kuis.item, benar)
-      setRecSelesai((n) => n + 1)
-    }
-    setKuis(null)
-    pausedRef.current = false
+    const item = kuis.item
+    const tipe = kuis.tipe
+    const benar = idx === item.benar
+    setKuis({ item, tipe, jawab: idx })
+    kuisTimerRef.current = setTimeout(() => {
+      if (tipe === 'tas') {
+        apiRef.current.selesaiKuis?.(item, benar)
+        setTasIsi((t) => [...t, { ...item, benar }])
+      } else {
+        apiRef.current.selesaiRec?.(item, benar)
+        setRecSelesai((n) => n + 1)
+      }
+      setKuis(null)
+      pausedRef.current = false
+    }, 1400)
   }
 
   // ---------- ENGINE ----------
@@ -840,27 +1000,28 @@ export default function GameBencana() {
     if (!mount) return
     const cfgM = MODES[mode]
     const cfgD = DIFF[tingkat]
+    const cfgMit = MITIGASI[mode]
 
     const W = mount.clientWidth, H = mount.clientHeight
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setSize(W, H)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     mount.appendChild(renderer.domElement)
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(cfgM.langit)
-    scene.fog = new THREE.Fog(cfgM.langit, 80, 210)
+    scene.fog = new THREE.Fog(cfgM.langit, 90, 400) // jauh saat mode perencanaan
     const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 500)
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x556b5f, 0.9))
-    const matahari = new THREE.DirectionalLight(0xfff2d0, 1.1)
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x556b5f, 0.95))
+    const matahari = new THREE.DirectionalLight(0xfff2d0, 1.05)
     matahari.position.set(60, 90, 40)
     matahari.castShadow = true
     matahari.shadow.mapSize.set(2048, 2048)
-    matahari.shadow.camera.left = -110; matahari.shadow.camera.right = 110
-    matahari.shadow.camera.top = 110; matahari.shadow.camera.bottom = -110
+    matahari.shadow.camera.left = -100; matahari.shadow.camera.right = 100
+    matahari.shadow.camera.top = 100; matahari.shadow.camera.bottom = -100
     scene.add(matahari)
 
     const tinggiDi = (x, z) => cfgM.tinggi(x / SC, z / SC)
@@ -868,24 +1029,43 @@ export default function GameBencana() {
     const GOAL = [cfgM.goal[0] * SC, cfgM.goal[1] * SC]
     const SPAWN = [cfgM.spawn[0] * SC, cfgM.spawn[1] * SC]
 
+    // ---- jaringan jalan ----
+    const maxG = Math.max(Math.abs(GOAL[0]), Math.abs(GOAL[1]))
+    const TE = [GOAL[0] * (TOWN / maxG), GOAL[1] * (TOWN / maxG)]
+    const isRoad = (x, z) => {
+      if (Math.abs(x) <= TOWN + RW && Math.abs(z) <= TOWN + RW) {
+        const dx = Math.abs(x - Math.round(x / P) * P)
+        const dz = Math.abs(z - Math.round(z / P) * P)
+        if (dx < RW || dz < RW) return true
+      }
+      return jarakKeSegmen(x, z, TE[0], TE[1], GOAL[0], GOAL[1]) < RW + 0.4
+    }
+    const snapJalan = (x, z) => {
+      const gx = Math.round(x / P) * P, gz = Math.round(z / P) * P
+      if (Math.abs(x - gx) < Math.abs(z - gz)) return [gx, z]
+      return [x, gz]
+    }
+
     // ---- terrain ----
-    const SIZE = 200, SEG = 130
+    const SIZE = 200, SEG = 120
     const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG)
     geo.rotateX(-Math.PI / 2)
     const pos = geo.attributes.position
     const colors = new Float32Array(pos.count * 3)
-    const cAman = new THREE.Color('#5aa65c'), cWas = new THREE.Color('#d9c04a'),
+    const cAman = new THREE.Color('#4f9e51'), cWas = new THREE.Color('#d9c04a'),
       cRawan = new THREE.Color('#cf6a50'), cSesar = new THREE.Color('#3a3a3a'),
-      cPasir = new THREE.Color('#d8c48f'), tmp = new THREE.Color()
+      cPasir = new THREE.Color('#d8c48f'), cJalan = new THREE.Color('#6b7280'),
+      tmp = new THREE.Color()
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i)
       const h = tinggiDi(x, z)
       pos.setY(i, h)
       const zona = rawanDi(x, z)
       tmp.copy(zona === 2 ? cRawan : zona === 1 ? cWas : cAman)
-      if (mode === 'gempa' && Math.abs(x / SC - 10) < 1.6) tmp.copy(cSesar)
+      if (isRoad(x, z) && h > 0.35) tmp.copy(cJalan)
+      if (mode === 'gempa' && Math.abs(x / SC - 10) < 1.6 && !isRoad(x, z)) tmp.copy(cSesar)
       if (mode === 'tsunami' && h < 0.4 && h > -0.6) tmp.copy(cPasir)
-      const shade = 0.86 + Math.min(0.2, Math.max(0, h) * 0.02) + Math.random() * 0.06
+      const shade = 0.88 + Math.min(0.16, Math.max(0, h) * 0.018) + Math.random() * 0.05
       tmp.multiplyScalar(shade)
       colors[i * 3] = tmp.r; colors[i * 3 + 1] = tmp.g; colors[i * 3 + 2] = tmp.b
     }
@@ -897,7 +1077,7 @@ export default function GameBencana() {
 
     // ---- tabrakan ----
     const colliders = []
-    const tabrak = (x, z, rad = 0.55) => {
+    const tabrak = (x, z, rad = 0.5) => {
       for (const c of colliders) {
         const dx = x - c.x, dz = z - c.z
         if (dx * dx + dz * dz < (c.r + rad) * (c.r + rad)) return true
@@ -908,22 +1088,34 @@ export default function GameBencana() {
     const rand = (a, b) => a + Math.random() * (b - a)
     const jauhDari = (x, z, px2, pz2, d) => Math.hypot(x - px2, z - pz2) > d
 
-    // ---- rumah warga & pohon ----
+    // ---- permukiman padat ----
     const bangunan = []
-    for (let i = 0; i < 18; i++) {
-      let x, z, coba = 0
-      do { x = rand(-78, 78); z = rand(-78, 78); coba++ } while (
-        coba < 40 && (rawanDi(x, z) === 2 || tinggiDi(x, z) < 0.6 ||
-          !jauhDari(x, z, GOAL[0], GOAL[1], 12) || !jauhDari(x, z, SPAWN[0], SPAWN[1], 8))
-      )
-      const r = buatRumah(0xe8dcc0 + ((i * 1234) % 0x111111), 0.85)
-      r.position.set(x, tinggiDi(x, z), z)
-      r.rotation.y = rand(0, Math.PI * 2)
-      scene.add(r); bangunan.push(r)
-      colliders.push({ x, z, r: 2.6 })
+    let seed = 0
+    for (let bi = -3; bi < 3; bi++) {
+      for (let bj = -3; bj < 3; bj++) {
+        const cx0 = bi * P + P / 2
+        const cz0 = bj * P + P / 2
+        const off = 4.6
+        const posisi = [[-off, -off], [off, -off], [-off, off], [off, off]]
+        for (const [ox, oz] of posisi) {
+          const x = cx0 + ox + rand(-0.6, 0.6)
+          const z = cz0 + oz + rand(-0.6, 0.6)
+          seed++
+          if (tinggiDi(x, z) < 0.6) continue
+          if (mode === 'longsor' && tinggiDi(x, z) > 14) continue
+          if (!jauhDari(x, z, SPAWN[0], SPAWN[1], 5)) continue
+          if (!jauhDari(x, z, GOAL[0], GOAL[1], 12)) continue
+          const r = buatRumahWarga(seed)
+          r.position.set(x, tinggiDi(x, z), z)
+          r.rotation.y = (seed % 4) * (Math.PI / 2)
+          scene.add(r); bangunan.push(r)
+          colliders.push({ x, z, r: 2.55 })
+        }
+      }
     }
-    for (let i = 0; i < 45; i++) {
-      const x = rand(-82, 82), z = rand(-82, 82)
+    for (let i = 0; i < 30; i++) {
+      const x = rand(-84, 84), z = rand(-84, 84)
+      if (Math.abs(x) < TOWN && Math.abs(z) < TOWN) continue
       if (tinggiDi(x, z) < 0.6 || !jauhDari(x, z, GOAL[0], GOAL[1], 6)) continue
       const p = buatPohon()
       p.position.set(x, tinggiDi(x, z), z)
@@ -932,56 +1124,50 @@ export default function GameBencana() {
       colliders.push({ x, z, r: 0.7 })
     }
 
-    // ---- barikade (jalan buntu) ----
-    for (let i = 0; i < 9; i++) {
-      const f = rand(0.2, 0.8)
-      const cx = SPAWN[0] + (GOAL[0] - SPAWN[0]) * f + rand(-22, 22)
-      const cz = SPAWN[1] + (GOAL[1] - SPAWN[1]) * f + rand(-22, 22)
-      if (!jauhDari(cx, cz, GOAL[0], GOAL[1], 10) || !jauhDari(cx, cz, SPAWN[0], SPAWN[1], 9)) continue
-      if (mode === 'tsunami' && tinggiDi(cx, cz) < 0.4) continue
-      const pj = rand(9, 17)
-      const rot = rand(0, Math.PI)
-      const pagar = buatPagar(pj)
-      pagar.position.set(cx, tinggiDi(cx, cz), cz)
-      pagar.rotation.y = rot
-      scene.add(pagar)
-      const nSeg = Math.ceil(pj / 1.1)
-      for (let s = 0; s <= nSeg; s++) {
-        const tSeg = -pj / 2 + (s * pj) / nSeg
-        colliders.push({ x: cx + Math.cos(rot) * tSeg, z: cz - Math.sin(rot) * tSeg, r: 0.7 })
+    // ---- JALUR EVAKUASI: rute jalan + panah di aspal + rambu berarah ----
+    const gx = Math.max(-TOWN, Math.min(TOWN, Math.round(TE[0] / P) * P))
+    const gz = Math.max(-TOWN, Math.min(TOWN, Math.round(TE[1] / P) * P))
+    const spawnDiVertikal = Math.abs(SPAWN[0] - Math.round(SPAWN[0] / P) * P) < RW
+    const rute = spawnDiVertikal
+      ? [[SPAWN[0], SPAWN[1]], [SPAWN[0], gz], [gx, gz], TE, GOAL]
+      : [[SPAWN[0], SPAWN[1]], [gx, SPAWN[1]], [gx, gz], TE, GOAL]
+    const panahList = []
+    for (let s = 0; s < rute.length - 1; s++) {
+      const [ax, az] = rute[s], [bx, bz] = rute[s + 1]
+      const len = Math.hypot(bx - ax, bz - az)
+      if (len < 2) continue
+      const dirX = (bx - ax) / len, dirZ = (bz - az) / len
+      const n = Math.max(1, Math.floor(len / 11))
+      for (let k = 1; k <= n; k++) {
+        const px2 = ax + dirX * (k * len) / (n + 0.0001)
+        const pz2 = az + dirZ * (k * len) / (n + 0.0001)
+        if (tinggiDi(px2, pz2) < 0.4) continue
+        const panah = buatPanahJalan()
+        panah.position.set(px2, tinggiDi(px2, pz2) + 0.08, pz2)
+        panah.rotation.y = -Math.atan2(dirZ, dirX)
+        panah.visible = false // muncul saat bencana
+        scene.add(panah)
+        panahList.push(panah)
+      }
+      // rambu di tiap belokan, menghadap arah segmen berikutnya
+      if (s > 0) {
+        const rambu = buatRambu()
+        rambu.position.set(ax + 2.6, tinggiDi(ax + 2.6, az), az + 2.6)
+        rambu.rotation.y = Math.atan2(bx - ax, bz - az) + Math.PI / 2
+        scene.add(rambu)
       }
     }
 
-    // ---- rambu jalur evakuasi ----
-    for (let i = 1; i <= 5; i++) {
-      const f = i / 6
-      let sx = SPAWN[0] + (GOAL[0] - SPAWN[0]) * f + rand(-6, 6)
-      let sz = SPAWN[1] + (GOAL[1] - SPAWN[1]) * f + rand(-6, 6)
-      if (mode === 'tsunami' && tinggiDi(sx, sz) < 0.4) sx = Math.min(sx, 20)
-      const rambu = buatRambu()
-      rambu.position.set(sx, tinggiDi(sx, sz), sz)
-      rambu.rotation.y = Math.atan2(GOAL[0] - sx, GOAL[1] - sz) + Math.PI / 2
-      scene.add(rambu)
-    }
-
-    // ---- karakter ----
+    // ---- karakter (BELUM muncul di fase mitigasi) ----
     const pemain = buatKarakter({ gender, kulit })
     pemain.position.set(SPAWN[0], tinggiDi(SPAWN[0], SPAWN[1]), SPAWN[1])
+    pemain.visible = false
     scene.add(pemain)
     const anim = pemain.userData
-
-    // ---- rumah hantu ----
-    const rumahGhost = buatRumah(0xffffff)
-    rumahGhost.traverse((o) => {
-      if (o.isMesh) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.45 }
-    })
-    scene.add(rumahGhost)
-    let rumahTetap = null
 
     // ---- goal ----
     const goal = buatGoal(cfgM.goalLabel)
     goal.position.set(GOAL[0], tinggiDi(GOAL[0], GOAL[1]), GOAL[1])
-    goal.visible = false
     scene.add(goal)
 
     // ---- hujan ----
@@ -1052,38 +1238,70 @@ export default function GameBencana() {
       scene.add(b); batuan.push(b)
     }
 
-    // ---- pohon tumbang dinamis ----
-    const spawnPohonTumbang = () => {
-      const asal = rumahTetap ? rumahTetap.position : pemain.position
-      for (let i = 0; i < 6; i++) {
-        const f = 0.18 + 0.62 * (i / 5) + rand(-0.05, 0.05)
-        const cx = asal.x + (GOAL[0] - asal.x) * f + rand(-10, 10)
-        const cz = asal.z + (GOAL[1] - asal.z) * f + rand(-10, 10)
-        if (!jauhDari(cx, cz, GOAL[0], GOAL[1], 8)) continue
-        if (mode === 'tsunami' && tinggiDi(cx, cz) < 0.4) continue
-        const pj = rand(5, 8)
-        const rot = rand(0, Math.PI)
-        const log = buatPohonTumbang(pj)
-        log.position.set(cx, tinggiDi(cx, cz), cz)
-        log.rotation.y = rot
-        scene.add(log)
-        for (let s = 0; s <= 4; s++) {
-          const tSeg = -pj / 2 + (s * pj) / 4
-          colliders.push({ x: cx + Math.cos(rot) * tSeg, z: cz - Math.sin(rot) * tSeg, r: 0.85 })
+    // ---- titik pemutus jalan ----
+    let cuts = []
+    const spawnPemutusJalan = () => {
+      const tipePerMode = {
+        banjir: ['air', 'air', 'air', 'air', 'air', 'blok', 'blok', 'blok', 'blok'],
+        tsunami: ['air', 'air', 'air', 'air', 'air', 'blok', 'blok', 'blok', 'blok'],
+        longsor: ['blok', 'blok', 'blok', 'blok', 'blok', 'blok', 'air', 'air', 'air'],
+        gempa: ['blok', 'blok', 'blok', 'blok', 'blok', 'blok', 'air', 'air', 'air'],
+      }
+      const daftar = tipePerMode[mode]
+      let percobaan = 0
+      while (cuts.length < daftar.length && percobaan < 300) {
+        percobaan++
+        const garis = (Math.floor(rand(-2, 3))) * P
+        const tSepanjang = rand(-46, 46)
+        const vertikal = Math.random() < 0.5
+        const x = vertikal ? garis : tSepanjang
+        const z = vertikal ? tSepanjang : garis
+        if (!isRoad(x, z)) continue
+        if (tinggiDi(x, z) < 0.5) continue
+        if (!jauhDari(x, z, pemain.position.x, pemain.position.z, 12)) continue
+        if (!jauhDari(x, z, GOAL[0], GOAL[1], 15)) continue
+        if (cuts.some((c) => !jauhDari(x, z, c.x, c.z, 13))) continue
+        const tipe = daftar[cuts.length]
+        let mesh
+        if (tipe === 'air') {
+          mesh = buatGenangan()
+          mesh.position.set(x, tinggiDi(x, z) + 0.1, z)
+        } else {
+          mesh = buatPenutupJalan(mode)
+          mesh.position.set(x, tinggiDi(x, z), z)
+          mesh.rotation.y = rand(0, Math.PI)
+          colliders.push({ x, z, r: 3.3 })
         }
+        scene.add(mesh)
+        cuts.push({ x, z, tipe, mesh })
       }
     }
 
-    // ---- item tas siaga ----
+    // ---- item tas siaga: SEMUA di jalan zona merah ----
     let itemMeshes = []
     const spawnItems = (cx, cz) => {
+      const terpasang = []
+      const cariTitikJalan = (butuhMerah) => {
+        for (let coba = 0; coba < 250; coba++) {
+          const ang = rand(0, Math.PI * 2)
+          const r = rand(8, 75)
+          const tx = Math.max(-TOWN, Math.min(TOWN, cx + Math.cos(ang) * r))
+          const tz = Math.max(-TOWN, Math.min(TOWN, cz + Math.sin(ang) * r))
+          const [sx2, sz2] = snapJalan(tx, tz)
+          if (!isRoad(sx2, sz2)) continue
+          if (tinggiDi(sx2, sz2) < 0.5) continue
+          if (tabrak(sx2, sz2, 0.8)) continue
+          if (butuhMerah && rawanDi(sx2, sz2) !== 2) continue
+          if (Math.hypot(sx2 - cx, sz2 - cz) < 9) continue
+          if (terpasang.some((p) => Math.hypot(p[0] - sx2, p[1] - sz2) < 9)) continue
+          return [sx2, sz2]
+        }
+        return null
+      }
       itemMeshes = ITEMS.map((it, i) => {
-        const ang = (i / ITEMS.length) * Math.PI * 2 + rand(-0.25, 0.25)
-        const r = rand(12, 27)
-        let x = cx + Math.cos(ang) * r, z = cz + Math.sin(ang) * r
-        x = Math.max(-BATAS + 2, Math.min(BATAS - 2, x))
-        z = Math.max(-BATAS + 2, Math.min(BATAS - 2, z))
-        if (mode === 'tsunami' && tinggiDi(x, z) < 0.5) x -= 14
+        const titik2 = cariTitikJalan(true) || cariTitikJalan(false) || [cx + 6 + i * 3, cz]
+        const [x, z] = titik2
+        terpasang.push(titik2)
         const s = spriteIkon(it.ikon, '#f59e0b', 2.4)
         const y0 = tinggiDi(x, z) + 1.5
         s.position.set(x, y0, z)
@@ -1105,10 +1323,16 @@ export default function GameBencana() {
     const spawnRecovery = () => {
       const tugasList = RECOVERY[mode]
       const dipilih = [...bangunan]
+        .filter((b) => jauhDari(b.position.x, b.position.z, GOAL[0], GOAL[1], 14))
         .sort(() => Math.random() - 0.5)
-        .slice(0, tugasList.length)
+      const terpakai = []
+      for (const b of dipilih) {
+        if (terpakai.length >= tugasList.length) break
+        if (terpakai.some((t2) => !jauhDari(b.position.x, b.position.z, t2.position.x, t2.position.z, 16))) continue
+        terpakai.push(b)
+      }
       recPoints = tugasList.map((tugas, i) => {
-        const b = dipilih[i]
+        const b = terpakai[i]
         const x = b ? b.position.x : rand(-40, 40)
         const z = b ? b.position.z : rand(-40, 40)
         if (b) { b.rotation.z = 0.14; b.rotation.x = 0.08 }
@@ -1127,15 +1351,16 @@ export default function GameBencana() {
 
     // ---- minimap ----
     const mmC = document.createElement('canvas')
-    mmC.width = mmC.height = 110
+    mmC.width = mmC.height = 128
     const mmG = mmC.getContext('2d')
-    for (let i = 0; i < 110; i++) for (let j = 0; j < 110; j++) {
-      const x = (i / 109) * 2 * BATAS - BATAS, z = (j / 109) * 2 * BATAS - BATAS
+    for (let i = 0; i < 128; i++) for (let j = 0; j < 128; j++) {
+      const x = (i / 127) * 2 * BATAS - BATAS, z = (j / 127) * 2 * BATAS - BATAS
       const h = tinggiDi(x, z), zona = rawanDi(x, z)
-      mmG.fillStyle = mode === 'tsunami' && h < 0
-        ? '#1d6fa5'
-        : zona === 2 ? '#cf6a50' : zona === 1 ? '#d9c04a' : '#5aa65c'
-      if (mode === 'gempa' && Math.abs(x / SC - 10) < 1.8) mmG.fillStyle = '#333'
+      let warna = zona === 2 ? '#cf6a50' : zona === 1 ? '#d9c04a' : '#4f9e51'
+      if (isRoad(x, z) && h > 0.35) warna = '#4b5563'
+      if (mode === 'gempa' && Math.abs(x / SC - 10) < 1.8 && !isRoad(x, z)) warna = '#333'
+      if (mode === 'tsunami' && h < 0) warna = '#1d6fa5'
+      mmG.fillStyle = warna
       mmG.fillRect(i, j, 1, 1)
     }
     const titik = (g, x, y, r, isi, stroke) => {
@@ -1164,6 +1389,9 @@ export default function GameBencana() {
         if (mode === 'tsunami') g.fillRect(x0, 0, S - x0, S)
         else g.fillRect(x0, px(-30 * SC), S - x0, px(30 * SC) - px(-30 * SC))
       }
+      cuts.forEach((c) => {
+        titik(g, px(c.x), px(c.z), 4.5, c.tipe === 'air' ? '#3b82f6' : '#78350f', '#ffffff')
+      })
       itemMeshes.forEach((s) => {
         if (s.userData.ambil) return
         titik(g, px(s.position.x), px(s.position.z), 4, '#ffd60a', '#ffffff')
@@ -1172,64 +1400,84 @@ export default function GameBencana() {
         if (r.selesai) return
         titik(g, px(r.x), px(r.z), 4.5, '#f97316', '#ffffff')
       })
-      if (goal.visible) titik(g, px(goal.position.x), px(goal.position.z), 6, '#22c55e', '#ffffff')
-      if (rumahTetap) {
-        g.fillStyle = '#7c3aed'
-        g.strokeStyle = '#fff'; g.lineWidth = 1.5
-        g.fillRect(px(rumahTetap.position.x) - 4, px(rumahTetap.position.z) - 4, 8, 8)
-        g.strokeRect(px(rumahTetap.position.x) - 4, px(rumahTetap.position.z) - 4, 8, 8)
+      titik(g, px(goal.position.x), px(goal.position.z), 6, '#22c55e', '#ffffff')
+      if (pemain.visible) {
+        g.save()
+        g.translate(px(pemain.position.x), px(pemain.position.z))
+        g.rotate(-pemain.rotation.y)
+        g.fillStyle = '#fff'
+        g.beginPath(); g.moveTo(0, -7); g.lineTo(5, 5); g.lineTo(-5, 5); g.closePath(); g.fill()
+        g.strokeStyle = '#111'; g.lineWidth = 1.5; g.stroke()
+        g.restore()
       }
-      g.save()
-      g.translate(px(pemain.position.x), px(pemain.position.z))
-      g.rotate(-pemain.rotation.y)
-      g.fillStyle = '#fff'
-      g.beginPath(); g.moveTo(0, -7); g.lineTo(5, 5); g.lineTo(-5, 5); g.closePath(); g.fill()
-      g.strokeStyle = '#111'; g.lineWidth = 1.5; g.stroke()
-      g.restore()
     }
 
     // ---- state internal ----
     const st = {
-      faseNow: 'rumah',
+      faseNow: 'mitigasi',
       hp: 100,
-      timerTas: cfgD.tasWaktu,
-      timerEvak: cfgD.evakWaktu,
-      timerRec: cfgD.recWaktu,
+      timerTas: cfgD.tas,
+      timerEvak: cfgD.aksi,
+      timerRec: cfgD.aksi,
       tEvakPakai: 0,
       stage: 0,
       stageT: 0,
       selesai: false,
-      skorRumah: 0,
-      zonaRumah: 0,
+      benarMit: 0,
+      jumlahMit: 0,
       benarTas: 0,
       benarRec: 0,
       selamat: false,
+      hpAkhir: 0,
       shake: 0,
       susulanT: 8,
       pesanT: 0,
       blokirT: 0,
     }
+    const shakeDur = Math.min(10, cfgD.aksi * 0.25)
 
     const kirimPesan = (p) => { setPesan(p); st.pesanT = 3.5 }
 
-    apiRef.current.bangunRumah = () => {
-      if (st.faseNow !== 'rumah') return
-      const x = pemain.position.x, z = pemain.position.z
-      if (mode === 'tsunami' && tinggiDi(x, z) < 0.4) { kirimPesan('Tidak bisa membangun di laut!'); return }
-      const zona = rawanDi(x, z)
-      st.zonaRumah = zona
-      st.skorRumah = zona === 0 ? 100 : zona === 1 ? 60 : 25
-      rumahTetap = buatRumah(0xf7e9c6)
-      rumahTetap.position.set(x + 3.4, tinggiDi(x + 3.4, z), z)
-      scene.add(rumahTetap)
-      colliders.push({ x: x + 3.4, z, r: 2.6 })
-      scene.remove(rumahGhost)
+    // ---- FASE 1: penempatan struktur mitigasi (klik peta) ----
+    const validMitigasi = (x, z) => {
+      const xu = x / SC
+      const h = tinggiDi(x, z)
+      if (mode === 'banjir') return rawanDi(x, z) === 2 && h > 0.2
+      if (mode === 'longsor') return xu > 10
+      if (mode === 'tsunami') return xu > 8 && h > -0.6 && h < 2.2
+      // gempa: dekat bangunan di zona merah
+      if (rawanDi(x, z) !== 2) return false
+      return bangunan.some((b) => Math.hypot(b.position.x - x, b.position.z - z) < 6)
+    }
+    const tempatkanStruktur = (pt) => {
+      if (st.jumlahMit >= 5) return
+      const x = pt.x, z = pt.z
+      const valid = validMitigasi(x, z)
+      if (valid) st.benarMit++
+      st.jumlahMit++
+      setMitCount(st.jumlahMit)
+      const struktur = buatStrukturMitigasi(mode)
+      struktur.position.set(x, tinggiDi(x, z), z)
+      if (mode === 'longsor') struktur.rotation.y = -Math.PI / 2
+      scene.add(struktur)
+      const tanda = spriteIkon(valid ? 'perisai' : 'gagal', valid ? '#16a34a' : '#dc2626', 1.8)
+      tanda.position.set(x, tinggiDi(x, z) + 4.5, z)
+      scene.add(tanda)
+      setTimeout(() => scene.remove(tanda), 2200)
+      kirimPesan(valid ? cfgMit.benar : cfgMit.salah)
+      if (st.jumlahMit >= 5) setTimeout(mulaiTas, 900)
+    }
+
+    const mulaiTas = () => {
+      if (st.faseNow !== 'mitigasi') return
       st.faseNow = 'tas'
       setFase('tas')
-      spawnItems(x, z)
+      pemain.visible = true
+      scene.fog.far = 210
+      spawnItems(SPAWN[0], SPAWN[1])
       setBriefFase({
         judul: 'PRA BENCANA — Isi Tas Siaga',
-        isi: `Rumah dibangun di zona ${zona === 0 ? 'AMAN (+100 poin)' : zona === 1 ? 'WASPADA (+60 poin)' : 'RAWAN (+25 poin)'}. Kumpulkan 10 barang tas siaga BNPB (titik kuning di minimap). Jawab benar = +10 poin. Waktu: ${cfgD.tasWaktu} detik.`,
+        isi: `Mitigasi struktural selesai: ${st.benarMit}/5 di lokasi tepat (+${st.benarMit * 20} poin). Sekarang karaktermu muncul di kota. Kumpulkan 10 barang tas siaga — SEMUA tersebar di jalan-jalan ZONA MERAH (titik kuning di minimap). Benar = +10. Waktu: ${cfgD.tas} detik!`,
         langkah: [],
         tombol: 'Mulai Mengumpulkan',
         aksi: () => { setBriefFase(null); pausedRef.current = false },
@@ -1246,7 +1494,7 @@ export default function GameBencana() {
         if (spr.userData.ring) spr.userData.ring.visible = false
       }
       anim.tas.visible = true
-      if (itemMeshes.every((s) => s.userData.ambil)) mulaiBencana()
+      if (itemMeshes.length && itemMeshes.every((s) => s.userData.ambil)) mulaiBencana()
     }
 
     apiRef.current.selesaiRec = (tugas, benar) => {
@@ -1257,7 +1505,26 @@ export default function GameBencana() {
         rp.sprite.visible = false
         rp.ring.material.color.set(0x22c55e)
       }
-      if (recPoints.every((r) => r.selesai)) selesaiGame()
+      if (recPoints.length && recPoints.every((r) => r.selesai)) selesaiGame()
+    }
+
+    // titik awal evakuasi: ruas jalan ZONA MERAH terjauh dari area evakuasi
+    const cariTitikSangatRawan = () => {
+      let best = null, bestD = -1
+      for (let i = 0; i < 300; i++) {
+        const garis = (Math.floor(rand(-3, 4))) * P
+        const tSepanjang = rand(-TOWN, TOWN)
+        const vertikal = Math.random() < 0.5
+        const x = vertikal ? garis : tSepanjang
+        const z = vertikal ? tSepanjang : garis
+        if (!isRoad(x, z)) continue
+        if (tinggiDi(x, z) < 0.5) continue
+        if (rawanDi(x, z) !== 2) continue
+        if (tabrak(x, z, 0.8)) continue
+        const d = Math.hypot(x - GOAL[0], z - GOAL[1])
+        if (d > bestD) { bestD = d; best = [x, z] }
+      }
+      return best || [SPAWN[0], SPAWN[1]]
     }
 
     const mulaiBencana = () => {
@@ -1266,18 +1533,22 @@ export default function GameBencana() {
       st.stage = 0; st.stageT = 0
       setFase('bencana')
       itemMeshes.forEach((s) => { s.visible = false; if (s.userData.ring) s.userData.ring.visible = false })
-      goal.visible = true
-      spawnPohonTumbang()
+      // karakter dipindahkan ke zona sangat rawan — evakuasi dari titik terburuk
+      const [rx, rz] = cariTitikSangatRawan()
+      pemain.position.set(rx, tinggiDi(rx, rz), rz)
+      targetRef.current = null
+      spawnPemutusJalan()
+      panahList.forEach((p) => { p.visible = true })
       scene.background = new THREE.Color(0x4a5a6a)
       scene.fog.color.set(0x4a5a6a)
       const teks = {
-        banjir: `AIR MULAI NAIK! Capai ${cfgM.goalLabel} dalam ${cfgD.evakWaktu} detik. Ikuti rambu, hindari air dalam dan pohon tumbang.`,
-        longsor: `Hujan deras, terdengar gemuruh dari lereng! Kamu punya ${cfgD.evakWaktu} detik untuk mencapai ${cfgM.goalLabel} — lari MENJAUH dan MENYAMPING dari jalur luncuran.`,
-        gempa: `GEMPA! TAHAN tombol BERLINDUNG (C) dulu. Setelah reda, capai ${cfgM.goalLabel} dalam sisa waktu (total ${cfgD.evakWaktu} detik).`,
-        tsunami: `GEMPA KUAT! BERLINDUNG (C) selama guncangan, lalu capai ${cfgM.goalLabel} sebelum gelombang tiba. Batas waktu ${cfgD.evakWaktu} detik.`,
+        banjir: `AIR NAIK dan kamu terjebak di ZONA SANGAT RAWAN! Ikuti panah hijau di jalan menuju satu-satunya ${cfgM.goalLabel}. Ruas biru di minimap = genangan (menguras nyawa), cokelat = buntu. Waktu: ${cfgD.aksi} detik!`,
+        longsor: `LONGSOR SEGERA TERJADI dan kamu berada di zona sangat rawan! Ikuti panah hijau ke ${cfgM.goalLabel} — satu-satunya zona aman. Cek minimap untuk ruas terputus. Waktu: ${cfgD.aksi} detik!`,
+        gempa: `GEMPA! Kamu berada di zona sesar. TAHAN BERLINDUNG (C) dulu, lalu ikuti panah hijau ke ${cfgM.goalLabel} — satu-satunya zona aman. Waktu total: ${cfgD.aksi} detik!`,
+        tsunami: `GEMPA KUAT di zona pesisir rawan! BERLINDUNG (C) dulu, lalu lari mengikuti panah hijau ke ${cfgM.goalLabel} — satu-satunya zona aman — sebelum gelombang tiba! Waktu: ${cfgD.aksi} detik!`,
       }
       setBriefFase({
-        judul: `SAAT BENCANA — ${cfgM.nama} Datang!`,
+        judul: `SAAT BENCANA — ${cfgM.nama}!`,
         isi: teks[mode],
         langkah: [],
         tombol: 'Hadapi Bencana',
@@ -1291,16 +1562,17 @@ export default function GameBencana() {
     const mulaiPemulihan = () => {
       st.faseNow = 'pemulihan'
       st.selamat = true
+      st.hpAkhir = Math.max(0, Math.round(st.hp))
       setFase('pemulihan')
-      goal.visible = false
       rain.visible = false
       st.shake = 0
+      panahList.forEach((p) => { p.visible = false })
       scene.background = new THREE.Color(0xa8c8e0)
       scene.fog.color.set(0xa8c8e0)
       spawnRecovery()
       setBriefFase({
-        judul: 'PASCA BENCANA — Pemulihan (Recovery)',
-        isi: `Kamu selamat! Tapi tugas belum selesai. Bencana merusak infrastruktur permukiman. Kunjungi 5 titik rusak (titik oranye di minimap) dan ambil keputusan pemulihan yang BENAR. Jawaban benar = +20 poin. Waktu: ${cfgD.recWaktu} detik.`,
+        judul: 'PASCA BENCANA — Pemulihan',
+        isi: `Kamu selamat dengan sisa nyawa ${st.hpAkhir}%. Tangani 5 titik infrastruktur rusak (oranye di minimap). Jawaban benar = +20. Waktu: ${cfgD.aksi} detik.`,
         langkah: [],
         tombol: 'Mulai Pemulihan',
         aksi: () => { setBriefFase(null); pausedRef.current = false },
@@ -1312,21 +1584,23 @@ export default function GameBencana() {
       if (st.selesai) return
       st.selesai = true
       pausedRef.current = true
+      const skorMit = st.benarMit * 20
       const skorTas = st.benarTas * 10
+      const hpAkhir = st.selamat ? st.hpAkhir : 0
       const skorEvak = st.selamat
-        ? Math.round(60 + 40 * Math.max(0, st.timerEvak) / cfgD.evakWaktu)
+        ? Math.round(30 + 40 * Math.max(0, st.timerEvak) / cfgD.aksi + 30 * hpAkhir / 100)
         : 0
       const skorRec = st.benarRec * 20
       setHasil({
         selamat: st.selamat,
         mode, tingkat,
-        zonaRumah: st.zonaRumah,
-        skorRumah: st.skorRumah,
+        benarMit: st.benarMit, skorMit,
         benarTas: st.benarTas, skorTas,
         waktuEvak: Math.round(st.tEvakPakai),
+        hpAkhir,
         skorEvak,
         benarRec: st.benarRec, skorRec,
-        total: st.skorRumah + skorTas + skorEvak + skorRec,
+        total: skorMit + skorTas + skorEvak + skorRec,
       })
       setTimeout(() => setLayar('hasil'), 900)
     }
@@ -1355,7 +1629,9 @@ export default function GameBencana() {
       ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
       ray.setFromCamera(ndc, camera)
       const hit = ray.intersectObject(tanah)[0]
-      if (hit) targetRef.current = hit.point.clone()
+      if (!hit) return
+      if (st.faseNow === 'mitigasi') tempatkanStruktur(hit.point)
+      else targetRef.current = hit.point.clone()
     }
     renderer.domElement.addEventListener('pointerdown', klik)
 
@@ -1381,6 +1657,14 @@ export default function GameBencana() {
       return false
     }
 
+    // fokus kamera mode perencanaan per skenario (mengarah ke zona target mitigasi)
+    const fokusMit = {
+      banjir: [-18 * SC, 0],
+      longsor: [30 * SC, 0],
+      gempa: [10 * SC, 0],
+      tsunami: [14 * SC, 0],
+    }[mode]
+
     const loop = () => {
       raf = requestAnimationFrame(loop)
       const dt = Math.min(clock.getDelta(), 0.05)
@@ -1398,7 +1682,7 @@ export default function GameBencana() {
         r.ring.scale.setScalar(1 + 0.12 * Math.sin(t * 4))
       })
 
-      if (!pausedRef.current && !st.selesai) {
+      if (!pausedRef.current && !st.selesai && st.faseNow !== 'mitigasi') {
         const K = keysRef.current
         arah.set(0, 0, 0)
         if (K['w'] || K['arrowup']) arah.z -= 1
@@ -1412,11 +1696,18 @@ export default function GameBencana() {
         const bolehGerak = !(guncanganAktif && crouchRef.current)
         let kecepatan = 7.6 * (crouchRef.current ? 0.35 : 1)
 
+        let dalamGenangan = false
+        if (st.faseNow === 'bencana') {
+          for (const c of cuts) {
+            if (c.tipe !== 'air') continue
+            if (Math.hypot(c.x - pemain.position.x, c.z - pemain.position.z) < 4.2) { dalamGenangan = true; break }
+          }
+        }
         let depth = 0
         if (mode === 'banjir' && st.faseNow === 'bencana') {
           depth = levelAir - tinggiDi(pemain.position.x, pemain.position.z)
-          if (depth > 0.35) kecepatan *= 0.45
         }
+        if (dalamGenangan || depth > 0.35) kecepatan *= 0.45
 
         if (bolehGerak) {
           if (arah.lengthSq() > 0) {
@@ -1436,7 +1727,7 @@ export default function GameBencana() {
         }
         if (st.blokirT > 25 && st.pesanT <= 0) {
           st.blokirT = 0
-          kirimPesan('Jalan terhalang! Putari rintangan dan cari rute lain.')
+          kirimPesan('Jalan buntu! Lihat minimap dan cari ruas jalan lain.')
         }
         pemain.position.x = Math.max(-BATAS, Math.min(BATAS, pemain.position.x))
         pemain.position.z = Math.max(-BATAS, Math.min(BATAS, pemain.position.z))
@@ -1448,14 +1739,6 @@ export default function GameBencana() {
         anim.kakiKa.rotation.x = -sw
         anim.lenganKi.rotation.x = -sw
         anim.lenganKa.rotation.x = sw
-
-        if (st.faseNow === 'rumah') {
-          rumahGhost.position.set(
-            pemain.position.x + 3.4,
-            tinggiDi(pemain.position.x + 3.4, pemain.position.z),
-            pemain.position.z
-          )
-        }
 
         // -------- FASE TAS --------
         if (st.faseNow === 'tas') {
@@ -1485,13 +1768,18 @@ export default function GameBencana() {
           const px = pemain.position.x, pz = pemain.position.z
           const ph = tinggiDi(px, pz)
 
+          if (dalamGenangan) {
+            drain += 20
+            if (st.pesanT <= 0) kirimPesan('Kamu menerobos genangan! Nyawa terkuras — cari ruas jalan lain!')
+          }
+
           if (mode === 'banjir') {
-            levelAir = Math.min(levelAir + 0.06 * cfgD.mult * dt, 10)
+            levelAir = Math.min(levelAir + 0.1 * cfgD.mult * dt, 10)
             airBanjir.position.y = levelAir + 0.05 * Math.sin(t * 2)
             depth = levelAir - ph
-            if (depth > 2.0) drain = 26
-            else if (depth > 1.2) drain = 11
-            else if (depth > 0.4) drain = 4.5
+            if (depth > 2.0) drain += 26
+            else if (depth > 1.2) drain += 11
+            else if (depth > 0.4) drain += 4.5
             if (depth > 0.4 && st.pesanT <= 0) kirimPesan('Kamu berjalan di air! Cari jalur lebih tinggi!')
           }
 
@@ -1502,12 +1790,12 @@ export default function GameBencana() {
                 drain += 3.5
                 if (st.pesanT <= 0) kirimPesan('TAHAN tombol BERLINDUNG (C) selama guncangan!')
               }
-              if (st.stageT > 10) {
+              if (st.stageT > shakeDur * 0.8) {
                 st.stage = 1; st.stageT = 0; st.shake = 0; frontX = 92
                 kirimPesan('PERINGATAN TSUNAMI! LARI KE BUKIT SEKARANG!')
               }
             } else {
-              frontX -= 2.1 * cfgD.mult * dt
+              frontX -= 2.9 * cfgD.mult * dt
               gelombang.visible = true
               gelombang.position.set(frontX, 5.5, 0)
               gelombang.scale.y = 1 + 0.12 * Math.sin(t * 6)
@@ -1516,7 +1804,7 @@ export default function GameBencana() {
               banjirTsu.scale.x = lebar
               banjirTsu.position.set(frontX + lebar / 2, 0.5, 0)
               if (px > frontX - 2 && ph < 5) {
-                drain = 55
+                drain += 55
                 if (st.pesanT <= 0) kirimPesan('Gelombang menghantammu! Naik ke tempat tinggi!')
               }
             }
@@ -1524,7 +1812,7 @@ export default function GameBencana() {
 
           if (mode === 'longsor') {
             if (st.stage === 0) {
-              if (st.stageT > 7) {
+              if (st.stageT > Math.min(6, cfgD.aksi * 0.15)) {
                 st.stage = 1; st.stageT = 0; frontX = 44 * SC
                 kirimPesan('LONGSOR! Lari menjauh dan menyamping dari jalur luncuran!')
               } else if (Math.random() < dt * 1.2) {
@@ -1532,7 +1820,7 @@ export default function GameBencana() {
                 buatBatu(rand(20, 40) * SC, tinggiDi(30 * SC, bz) + 15, bz, rand(0.5, 1.1))
               }
             } else {
-              frontX -= 3.4 * cfgD.mult * dt
+              frontX -= 3.6 * cfgD.mult * dt
               longsoran.visible = true
               const lebar = Math.max(0.1, 44 * SC - frontX + 4)
               longsoran.scale.x = lebar
@@ -1542,7 +1830,7 @@ export default function GameBencana() {
                 buatBatu(frontX + rand(1, 9), tinggiDi(frontX, bz) + 13, bz, rand(0.5, 1.3))
               }
               if (px > frontX - 1.5 && Math.abs(pz) < 30 * SC) {
-                drain = 45
+                drain += 45
                 if (st.pesanT <= 0) kirimPesan('Kamu terkena material longsoran!')
               }
             }
@@ -1555,13 +1843,13 @@ export default function GameBencana() {
                 drain += 2.8
                 if (st.pesanT <= 0) kirimPesan('TAHAN tombol BERLINDUNG (C)! Jangan berlari saat guncangan!')
               }
-              if (Math.random() < dt * 1.4) {
+              if (Math.random() < dt * 1.2) {
                 const b = bangunan[Math.floor(Math.random() * bangunan.length)]
                 buatBatu(b.position.x + rand(-3, 3), b.position.y + 8, b.position.z + rand(-3, 3), rand(0.4, 0.9))
               }
-              if (st.stageT > 12) {
+              if (st.stageT > shakeDur) {
                 st.stage = 1; st.stageT = 0; st.shake = 0; st.susulanT = 9
-                kirimPesan('Guncangan berhenti! Evakuasi ke LAPANGAN TERBUKA — jauhi bangunan!')
+                kirimPesan('Guncangan berhenti! Ikuti panah hijau — jauhi bangunan!')
               }
             } else {
               st.susulanT -= dt
@@ -1571,14 +1859,14 @@ export default function GameBencana() {
                 st.susulanT = rand(8, 13)
                 kirimPesan('Gempa susulan! Menjauh dari bangunan!')
               }
-              if (st.shake > 0 && Math.random() < dt * 2.2) {
+              if (st.shake > 0 && Math.random() < dt * 2) {
                 const b = bangunan[Math.floor(Math.random() * bangunan.length)]
                 buatBatu(b.position.x + rand(-3.5, 3.5), b.position.y + 8, b.position.z + rand(-3.5, 3.5), rand(0.4, 0.9))
               }
             }
             if (st.shake > 0) {
               for (const b of bangunan) {
-                if (Math.hypot(b.position.x - px, b.position.z - pz) < 5.5) { drain += 6; break }
+                if (Math.hypot(b.position.x - px, b.position.z - pz) < 5) { drain += 6; break }
               }
             }
           }
@@ -1628,7 +1916,6 @@ export default function GameBencana() {
               if (banjirTsu.position.y < -6) banjirTsu.visible = false
             }
           }
-          // jarak pemicu 4.8 > collider rumah (2.6) + radius pemain — kuis pasti terpicu
           for (const r of recPoints) {
             if (r.selesai) continue
             if (Math.hypot(r.x - pemain.position.x, r.z - pemain.position.z) < 4.8) {
@@ -1641,19 +1928,26 @@ export default function GameBencana() {
 
         st.pesanT -= dt
         if (st.pesanT <= 0 && st.pesanT > -dt * 2) setPesan('')
+      } else if (st.faseNow === 'mitigasi') {
+        st.pesanT -= dt
+        if (st.pesanT <= 0 && st.pesanT > -dt * 2) setPesan('')
       }
 
-      const tinggiKam = st.faseNow === 'rumah' ? 24 : 10
-      const jarakKam = st.faseNow === 'rumah' ? 18 : 12.5
-      camera.position.lerp(
-        new THREE.Vector3(pemain.position.x, pemain.position.y + tinggiKam, pemain.position.z + jarakKam),
-        0.08
-      )
-      if (st.shake > 0) {
-        camera.position.x += (Math.random() - 0.5) * 0.5 * st.shake
-        camera.position.y += (Math.random() - 0.5) * 0.5 * st.shake
+      // kamera: mode perencanaan (top-down) vs mengikuti karakter
+      if (st.faseNow === 'mitigasi') {
+        camera.position.lerp(new THREE.Vector3(fokusMit[0], 100, fokusMit[1] + 62), 0.06)
+        camera.lookAt(fokusMit[0], 0, fokusMit[1] - 8)
+      } else {
+        camera.position.lerp(
+          new THREE.Vector3(pemain.position.x, pemain.position.y + 12, pemain.position.z + 12),
+          0.08
+        )
+        if (st.shake > 0) {
+          camera.position.x += (Math.random() - 0.5) * 0.5 * st.shake
+          camera.position.y += (Math.random() - 0.5) * 0.5 * st.shake
+        }
+        camera.lookAt(pemain.position.x, pemain.position.y + 1.6, pemain.position.z)
       }
-      camera.lookAt(pemain.position.x, pemain.position.y + 1.6, pemain.position.z)
 
       if (rain.visible) {
         const rp = rain.geometry.attributes.position
@@ -1668,18 +1962,17 @@ export default function GameBencana() {
       hudT += dt
       if (hudT > 0.2) {
         hudT = 0
-        if (st.faseNow === 'rumah') setZonaSkrg(rawanDi(pemain.position.x, pemain.position.z))
         setHp(Math.max(0, Math.round(st.hp)))
         if (st.faseNow === 'tas') setTimer(Math.max(0, Math.ceil(st.timerTas)))
         else if (st.faseNow === 'bencana') setTimer(Math.max(0, Math.ceil(st.timerEvak)))
         else if (st.faseNow === 'pemulihan') setTimer(Math.max(0, Math.ceil(st.timerRec)))
         const ins = {
-          rumah: 'Pilih lokasi rumah — baca warna zona di peta!',
-          tas: 'Kumpulkan titik KUNING di minimap dan jawab kuisnya!',
+          mitigasi: cfgMit.petunjuk,
+          tas: 'Kumpulkan titik KUNING di jalan zona merah!',
           bencana:
             (mode === 'gempa' || mode === 'tsunami') && st.stage === 0
               ? 'TAHAN tombol BERLINDUNG (C)!'
-              : `Ikuti rambu ke ${cfgM.goalLabel}!`,
+              : `Ikuti PANAH HIJAU ke ${cfgM.goalLabel} — satu-satunya zona aman!`,
           pemulihan: 'Datangi titik ORANYE dan putuskan pemulihan yang benar!',
         }
         setInstruksi(ins[st.faseNow] || '')
@@ -1722,62 +2015,94 @@ export default function GameBencana() {
   // ---------------- MENU ----------------
   if (layar === 'menu') {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-950 via-blue-900 to-slate-900 pt-20 pb-10 px-4 text-white">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-black tracking-tight">SIGANA <span className="text-amber-400">3D</span></h1>
-            <p className="text-white/70 mt-1 text-sm">Pra Bencana → Saat Bencana → Pasca Bencana — mainkan siklus penanggulangan bencana secara utuh</p>
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-blue-950 to-slate-900 pt-24 pb-12 px-4 text-white">
+        <div className="max-w-5xl mx-auto">
+          <div className="flex items-center gap-4 mb-10">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-teal-400 to-blue-600 flex items-center justify-center shadow-lg shadow-teal-900/40 flex-shrink-0">
+              <Ikon jenis="perisai" className="w-8 h-8 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <h1 className="text-3xl md:text-4xl font-black tracking-tight leading-none">Game Edukasi Bencana</h1>
+              <p className="text-white/60 mt-1.5 text-sm">
+                Bangun mitigasi struktural, siapkan tas siaga, evakuasi ke satu-satunya zona aman, dan pulihkan kota — siklus penanggulangan bencana yang utuh.
+              </p>
+            </div>
           </div>
 
-          <p className="font-semibold mb-2 text-teal-300">1. Pilih Bencana</p>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-6 h-6 rounded-full bg-amber-400 text-blue-950 text-xs font-black flex items-center justify-center">1</span>
+            <p className="font-bold">Pilih Skenario Bencana</p>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             {Object.entries(MODES).map(([k, m]) => (
               <button key={k} onClick={() => setMode(k)}
-                className={`${btn} p-4 text-left border-2 ${mode === k ? 'border-amber-400 bg-white/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
-                <Ikon jenis={k} className="w-8 h-8 mb-2 text-teal-300" />
-                <div className="font-bold">{m.nama}</div>
-                <div className="text-[11px] text-white/60 mt-1 leading-snug">{m.deskripsi}</div>
-              </button>
-            ))}
-          </div>
-
-          <p className="font-semibold mb-2 text-teal-300">2. Tingkat Kesulitan</p>
-          <div className="flex gap-3 mb-6">
-            {Object.entries(DIFF).map(([k, d]) => (
-              <button key={k} onClick={() => setTingkat(k)}
-                className={`${btn} flex-1 py-3 border-2 ${tingkat === k ? 'border-amber-400 bg-white/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
-                {d.label}
-                <div className="text-[10px] font-normal text-white/60">
-                  Tas {d.tasWaktu}s · Evakuasi {d.evakWaktu}s · Pemulihan {d.recWaktu}s
+                className={`${btn} overflow-hidden text-left border-2 group ${mode === k ? 'border-amber-400 shadow-lg shadow-amber-900/30' : 'border-white/10 hover:border-white/30'}`}>
+                <div className="aspect-video overflow-hidden bg-slate-800">
+                  <ThumbBencana jenis={k} />
+                </div>
+                <div className="p-3 bg-white/5">
+                  <div className="flex items-center gap-1.5 font-bold text-sm">
+                    <Ikon jenis={k} className="w-4 h-4 text-teal-300" />
+                    {m.nama}
+                    {mode === k && (
+                      <span className="ml-auto text-[9px] font-black bg-amber-400 text-blue-950 px-2 py-0.5 rounded-full">DIPILIH</span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-white/55 mt-1 leading-snug">{m.deskripsi}</div>
                 </div>
               </button>
             ))}
           </div>
 
-          <p className="font-semibold mb-2 text-teal-300">3. Karaktermu</p>
-          <div className="flex flex-wrap items-center gap-3 mb-8">
-            {[['laki', 'Laki-laki'], ['perempuan', 'Perempuan']].map(([k, l]) => (
-              <button key={k} onClick={() => setGender(k)}
-                className={`${btn} px-5 py-3 border-2 ${gender === k ? 'border-amber-400 bg-white/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
-                {l}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-6 h-6 rounded-full bg-amber-400 text-blue-950 text-xs font-black flex items-center justify-center">2</span>
+            <p className="font-bold">Tingkat Kesulitan</p>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mb-8">
+            {Object.entries(DIFF).map(([k, d]) => (
+              <button key={k} onClick={() => setTingkat(k)}
+                className={`${btn} py-3.5 border-2 ${tingkat === k ? 'border-amber-400 bg-white/10' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
+                <div className="flex items-center justify-center gap-1.5">
+                  <Ikon jenis="jam" className="w-4 h-4 text-teal-300" />{d.label}
+                </div>
+                <div className="text-[10px] font-normal text-white/55 mt-0.5">Tas {d.tas}s · Evakuasi & Pemulihan {d.aksi}s</div>
               </button>
             ))}
-            <div className="flex items-center gap-2 ml-2">
-              <span className="text-sm text-white/60">Warna kulit:</span>
+          </div>
+
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-6 h-6 rounded-full bg-amber-400 text-blue-950 text-xs font-black flex items-center justify-center">3</span>
+            <p className="font-bold">Karakter</p>
+          </div>
+          <div className="border border-white/10 bg-white/5 rounded-2xl p-4 flex flex-wrap items-center gap-5 mb-10">
+            <div className="flex gap-3">
+              {[['laki', 'Laki-laki'], ['perempuan', 'Perempuan']].map(([k, l]) => (
+                <button key={k} onClick={() => setGender(k)}
+                  className={`${btn} w-28 pt-3 pb-2 border-2 flex flex-col items-center gap-1.5 ${gender === k ? 'border-amber-400 bg-white/10' : 'border-white/10 hover:bg-white/10'}`}>
+                  <div className="w-16 h-[86px]">
+                    <KarakterSVG gender={k} kulit={kulit} />
+                  </div>
+                  <span className="text-xs font-bold">{l}</span>
+                </button>
+              ))}
+            </div>
+            <div className="w-px h-16 bg-white/10 hidden sm:block" />
+            <div className="flex items-center gap-2.5">
+              <span className="text-sm text-white/60">Warna kulit</span>
               {KULIT.map((c) => (
                 <button key={c} onClick={() => setKulit(c)}
-                  className={`w-9 h-9 rounded-full border-4 ${kulit === c ? 'border-amber-400' : 'border-white/20'}`}
+                  className={`w-9 h-9 rounded-full border-[3px] transition-all ${kulit === c ? 'border-amber-400 scale-110' : 'border-white/20'}`}
                   style={{ background: c }} />
               ))}
             </div>
           </div>
 
           <button onClick={mulai}
-            className={`${btn} w-full py-4 text-lg bg-amber-400 text-blue-950 hover:bg-amber-300 shadow-lg shadow-amber-900/40 flex items-center justify-center gap-2`}>
-            <Ikon jenis="lari" className="w-5 h-5" /> Mulai Misi: Selamat dari {M.nama}
+            className={`${btn} w-full py-4 text-lg bg-amber-400 text-blue-950 hover:bg-amber-300 shadow-xl shadow-amber-900/40 flex items-center justify-center gap-2`}>
+            <Ikon jenis="lari" className="w-5 h-5" strokeWidth={2.2} /> Mulai Misi: {M.nama}
           </button>
-          <p className="text-center text-[11px] text-white/40 mt-4">
-            Kontrol: WASD / panah / klik peta untuk berjalan · C = Berlindung · tombol sentuh tersedia di HP
+          <p className="text-center text-[11px] text-white/35 mt-4">
+            Fase mitigasi: klik peta · Karakter: WASD / panah / klik peta · C = Berlindung · kontrol sentuh otomatis di HP
           </p>
         </div>
       </div>
@@ -1801,22 +2126,24 @@ export default function GameBencana() {
       </div>
     )
     return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-950 via-blue-900 to-slate-900 pt-24 pb-10 px-4 text-white">
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-blue-950 to-slate-900 pt-24 pb-10 px-4 text-white">
         <div className="max-w-lg mx-auto bg-white/5 border border-white/10 rounded-2xl p-6">
           <div className="text-center mb-4">
             <Ikon jenis={hasil.selamat ? 'piala' : 'gagal'}
               className={`w-16 h-16 mx-auto mb-2 ${hasil.selamat ? 'text-amber-400' : 'text-red-400'}`} />
             <h2 className="text-2xl font-black">{hasil.selamat ? 'KAMU SELAMAT!' : 'TIDAK SELAMAT...'}</h2>
-            <p className="text-white/60 text-sm">Misi {MODES[hasil.mode].nama} · Mode {DIFF[hasil.tingkat].label}</p>
+            <p className="text-white/60 text-sm">Skenario {MODES[hasil.mode].nama} · {DIFF[hasil.tingkat].label}</p>
           </div>
-          <Baris tahap="PRA BENCANA · MITIGASI" ikon="lokasi" label="Ketepatan Lokasi Rumah" nilai={hasil.skorRumah} max={100}
-            ket={`Zona ${hasil.zonaRumah === 0 ? 'AMAN — pilihan terbaik!' : hasil.zonaRumah === 1 ? 'WASPADA — masih berisiko' : 'RAWAN — sangat berbahaya!'}`} />
+          <Baris tahap="PRA BENCANA · MITIGASI STRUKTURAL" ikon="perisai" label={MITIGASI[hasil.mode].nama} nilai={hasil.skorMit} max={100}
+            ket={`${hasil.benarMit}/5 struktur di lokasi tepat`} />
           <Baris tahap="PRA BENCANA · KESIAPSIAGAAN" ikon="tas" label="Tas Siaga Bencana" nilai={hasil.skorTas} max={100}
-            ket={`${hasil.benarTas}/10 pertanyaan benar`} />
+            ket={`${hasil.benarTas}/10 kuis benar`} />
           <Baris tahap="SAAT BENCANA · TANGGAP DARURAT" ikon="lari" label="Evakuasi" nilai={hasil.skorEvak} max={100}
-            ket={hasil.selamat ? `Selamat dalam ${hasil.waktuEvak} detik` : 'Tidak mencapai titik evakuasi'} />
+            ket={hasil.selamat
+              ? `Tepat sampai tujuan · ${hasil.waktuEvak}s · sisa nyawa ${hasil.hpAkhir}%`
+              : 'Tidak mencapai titik evakuasi'} />
           <Baris tahap="PASCA BENCANA · PEMULIHAN" ikon="perbaikan" label="Pemulihan Infrastruktur" nilai={hasil.skorRec} max={100}
-            ket={hasil.selamat ? `${hasil.benarRec}/5 keputusan pemulihan benar` : 'Tidak sampai tahap pemulihan'} />
+            ket={hasil.selamat ? `${hasil.benarRec}/5 keputusan benar` : 'Tidak sampai tahap pemulihan'} />
           <div className="flex items-center justify-between pt-4">
             <div className="text-lg font-bold">TOTAL</div>
             <div className="text-3xl font-black text-amber-400">{hasil.total}<span className="text-sm text-white/50">/400</span></div>
@@ -1828,7 +2155,7 @@ export default function GameBencana() {
             <button onClick={mulai} className={`${btn} flex-1 py-3 bg-amber-400 text-blue-950 hover:bg-amber-300 flex items-center justify-center gap-2`}>
               <Ikon jenis="ulang" className="w-4 h-4" /> Main Lagi
             </button>
-            <button onClick={() => setLayar('menu')} className={`${btn} flex-1 py-3 bg-white/10 hover:bg-white/20`}>Ganti Mode</button>
+            <button onClick={() => setLayar('menu')} className={`${btn} flex-1 py-3 bg-white/10 hover:bg-white/20`}>Ganti Skenario</button>
           </div>
         </div>
       </div>
@@ -1847,44 +2174,44 @@ export default function GameBencana() {
           <div className="font-bold flex items-center gap-1.5">
             <Ikon jenis={mode} className="w-4 h-4 text-teal-300" /> {M.nama} · {D.label}
           </div>
-          <div className="flex items-center gap-2 mt-1">
-            <Ikon jenis="hati" className="w-4 h-4 text-red-400" />
-            <div className="w-28 h-2.5 bg-white/20 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${hp > 50 ? 'bg-green-400' : hp > 25 ? 'bg-amber-400' : 'bg-red-500'}`}
-                style={{ width: `${hp}%` }} />
+          {fase !== 'mitigasi' && (
+            <div className="flex items-center gap-2 mt-1">
+              <Ikon jenis="hati" className="w-4 h-4 text-red-400" />
+              <div className="w-28 h-2.5 bg-white/20 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${hp > 50 ? 'bg-green-400' : hp > 25 ? 'bg-amber-400' : 'bg-red-500'}`}
+                  style={{ width: `${hp}%` }} />
+              </div>
+              <span className="font-mono">{hp}</span>
             </div>
-            <span className="font-mono">{hp}</span>
-          </div>
+          )}
         </div>
         <div className="bg-black/55 backdrop-blur rounded-xl px-3 py-2 text-white text-center">
           <div className="text-[10px] text-white/60">
-            {fase === 'tas' ? 'SISA WAKTU' : fase === 'bencana' ? 'BATAS EVAKUASI' : fase === 'pemulihan' ? 'WAKTU PEMULIHAN' : 'FASE 1'}
+            {fase === 'mitigasi' ? 'PERENCANAAN' : fase === 'tas' ? 'SISA WAKTU' : fase === 'bencana' ? 'BATAS EVAKUASI' : 'WAKTU PEMULIHAN'}
           </div>
-          <div className={`text-xl font-black font-mono flex items-center justify-center gap-1 ${fase !== 'rumah' && timer < 20 ? 'text-red-400' : ''}`}>
-            {fase === 'rumah'
-              ? <Ikon jenis="rumah" className="w-5 h-5" />
+          <div className={`text-xl font-black font-mono flex items-center justify-center gap-1 ${fase !== 'mitigasi' && timer < 15 ? 'text-red-400' : ''}`}>
+            {fase === 'mitigasi'
+              ? <Ikon jenis="peta" className="w-5 h-5" />
               : <><Ikon jenis="jam" className="w-4 h-4 opacity-70" />{timer}s</>}
           </div>
         </div>
-        <div className="bg-black/55 backdrop-blur rounded-xl px-3 py-2 text-white text-xs md:text-sm max-w-[40%]">
+        <div className="bg-black/55 backdrop-blur rounded-xl px-3 py-2 text-white text-xs md:text-sm max-w-[42%]">
           <div className="font-bold flex items-center gap-1.5">
-            <Ikon jenis={fase === 'pemulihan' ? 'perbaikan' : 'tas'} className="w-4 h-4 text-amber-400" />
-            {fase === 'pemulihan' ? `${recSelesai}/5` : `${tasIsi.length}/10`}
+            <Ikon jenis={fase === 'mitigasi' ? MIT.ikon : fase === 'pemulihan' ? 'perbaikan' : 'tas'} className="w-4 h-4 text-amber-400" />
+            {fase === 'mitigasi' ? `${mitCount}/5` : fase === 'pemulihan' ? `${recSelesai}/5` : `${tasIsi.length}/10`}
           </div>
           <div className="text-[10px] text-white/60 leading-tight">{instruksi}</div>
         </div>
       </div>
 
-      {/* indikator zona */}
-      {fase === 'rumah' && !briefFase && (
-        <div className="absolute bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-          <div className={`px-4 py-1.5 rounded-full text-sm font-bold text-white ${zonaSkrg === 0 ? 'bg-green-600' : zonaSkrg === 1 ? 'bg-amber-500' : 'bg-red-600'}`}>
-            Zona saat ini: {zonaSkrg === 0 ? 'AMAN' : zonaSkrg === 1 ? 'WASPADA' : 'RAWAN'}
+      {/* panel mode perencanaan */}
+      {fase === 'mitigasi' && !briefFase && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur border border-white/15 rounded-2xl px-5 py-3 text-white text-center max-w-md pointer-events-none">
+          <div className="flex items-center justify-center gap-2 font-black text-sm mb-0.5">
+            <Ikon jenis={MIT.ikon} className="w-5 h-5 text-teal-300" />
+            MODE PERENCANAAN — {MIT.nama} ({mitCount}/5)
           </div>
-          <button onClick={() => apiRef.current.bangunRumah?.()}
-            className={`${btn} px-6 py-3 bg-amber-400 text-blue-950 hover:bg-amber-300 shadow-xl text-sm md:text-base flex items-center gap-2`}>
-            <Ikon jenis="rumah" className="w-5 h-5" /> Bangun Rumah di Sini
-          </button>
+          <p className="text-[11px] text-white/70 leading-snug">{MIT.petunjuk}</p>
         </div>
       )}
 
@@ -1896,24 +2223,35 @@ export default function GameBencana() {
       )}
 
       {/* minimap */}
-      <canvas ref={minimapRef} width={170} height={170}
-        className="absolute bottom-3 right-3 rounded-xl border-2 border-white/40 shadow-xl" />
-
-      {/* tombol sentuh */}
-      <div className="absolute bottom-3 left-3 md:hidden">
-        <div className="grid grid-cols-3 gap-1 w-36">
-          <div />
-          <button className="bg-white/20 backdrop-blur rounded-lg py-3 text-white flex items-center justify-center active:bg-white/40"
-            onTouchStart={tekan('w', true)} onTouchEnd={tekan('w', false)}><Ikon jenis="atas" className="w-5 h-5" strokeWidth={2.5} /></button>
-          <div />
-          <button className="bg-white/20 backdrop-blur rounded-lg py-3 text-white flex items-center justify-center active:bg-white/40"
-            onTouchStart={tekan('a', true)} onTouchEnd={tekan('a', false)}><Ikon jenis="kiri" className="w-5 h-5" strokeWidth={2.5} /></button>
-          <button className="bg-white/20 backdrop-blur rounded-lg py-3 text-white flex items-center justify-center active:bg-white/40"
-            onTouchStart={tekan('s', true)} onTouchEnd={tekan('s', false)}><Ikon jenis="bawah" className="w-5 h-5" strokeWidth={2.5} /></button>
-          <button className="bg-white/20 backdrop-blur rounded-lg py-3 text-white flex items-center justify-center active:bg-white/40"
-            onTouchStart={tekan('d', true)} onTouchEnd={tekan('d', false)}><Ikon jenis="kanan" className="w-5 h-5" strokeWidth={2.5} /></button>
-        </div>
+      <div className="absolute bottom-3 right-3 flex flex-col items-end gap-1">
+        <canvas ref={minimapRef} width={176} height={176}
+          className="rounded-xl border-2 border-white/40 shadow-xl" />
+        {fase === 'bencana' && (
+          <div className="bg-black/55 backdrop-blur rounded-lg px-2 py-1 text-[9px] text-white/80 flex gap-2">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />genangan</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-900 inline-block" />buntu</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />evakuasi</span>
+          </div>
+        )}
       </div>
+
+      {/* tombol sentuh (bukan di mode perencanaan) */}
+      {fase !== 'mitigasi' && (
+        <div className="absolute bottom-3 left-3 md:hidden">
+          <div className="grid grid-cols-3 gap-1 w-36">
+            <div />
+            <button className="bg-white/20 backdrop-blur rounded-lg py-3 text-white flex items-center justify-center active:bg-white/40"
+              onTouchStart={tekan('w', true)} onTouchEnd={tekan('w', false)}><Ikon jenis="atas" className="w-5 h-5" strokeWidth={2.5} /></button>
+            <div />
+            <button className="bg-white/20 backdrop-blur rounded-lg py-3 text-white flex items-center justify-center active:bg-white/40"
+              onTouchStart={tekan('a', true)} onTouchEnd={tekan('a', false)}><Ikon jenis="kiri" className="w-5 h-5" strokeWidth={2.5} /></button>
+            <button className="bg-white/20 backdrop-blur rounded-lg py-3 text-white flex items-center justify-center active:bg-white/40"
+              onTouchStart={tekan('s', true)} onTouchEnd={tekan('s', false)}><Ikon jenis="bawah" className="w-5 h-5" strokeWidth={2.5} /></button>
+            <button className="bg-white/20 backdrop-blur rounded-lg py-3 text-white flex items-center justify-center active:bg-white/40"
+              onTouchStart={tekan('d', true)} onTouchEnd={tekan('d', false)}><Ikon jenis="kanan" className="w-5 h-5" strokeWidth={2.5} /></button>
+          </div>
+        </div>
+      )}
       {(mode === 'gempa' || mode === 'tsunami') && fase === 'bencana' && (
         <button
           className="absolute bottom-3 left-1/2 -translate-x-1/2 md:left-44 md:translate-x-0 bg-blue-600/90 text-white font-bold px-5 py-4 rounded-2xl shadow-xl active:bg-blue-500 flex items-center gap-2"
@@ -1923,19 +2261,23 @@ export default function GameBencana() {
         </button>
       )}
 
-      {/* kuis */}
+      {/* kuis — auto-lanjut */}
       {kuis && (
         <div className="absolute inset-0 bg-black/70 flex items-center justify-center p-4 z-20">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 text-slate-800 max-h-[85vh] overflow-y-auto">
-            <div className={`text-center text-[10px] font-bold tracking-wider mb-2 ${kuis.tipe === 'rec' ? 'text-orange-600' : 'text-blue-700'}`}>
-              {kuis.tipe === 'rec' ? 'PASCA BENCANA · KEPUTUSAN PEMULIHAN' : 'PRA BENCANA · TAS SIAGA'}
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 text-slate-800">
+            <div className="flex items-center gap-3 mb-3">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-white flex-shrink-0 ${kuis.tipe === 'rec' ? 'bg-orange-500' : 'bg-amber-500'}`}>
+                <Ikon jenis={kuis.item.ikon} className="w-6 h-6" />
+              </div>
+              <div>
+                <div className={`text-[9px] font-bold tracking-wider ${kuis.tipe === 'rec' ? 'text-orange-600' : 'text-blue-700'}`}>
+                  {kuis.tipe === 'rec' ? 'KEPUTUSAN PEMULIHAN' : 'TAS SIAGA'}
+                </div>
+                <div className="font-black leading-tight">{kuis.item.nama || kuis.item.judul}</div>
+              </div>
             </div>
-            <div className={`w-14 h-14 mx-auto mb-2 rounded-full flex items-center justify-center text-white ${kuis.tipe === 'rec' ? 'bg-orange-500' : 'bg-amber-500'}`}>
-              <Ikon jenis={kuis.item.ikon} className="w-8 h-8" />
-            </div>
-            <div className="text-center font-black text-lg mb-1">{kuis.item.nama || kuis.item.judul}</div>
-            <p className="text-sm font-semibold text-center mb-4">{kuis.item.tanya}</p>
-            <div className="flex flex-col gap-2">
+            <p className="text-sm font-semibold mb-3">{kuis.item.tanya}</p>
+            <div className="grid grid-cols-1 gap-1.5">
               {kuis.item.opsi.map((o, i) => {
                 const terjawab = kuis.jawab != null
                 const stil = !terjawab
@@ -1944,27 +2286,21 @@ export default function GameBencana() {
                     ? 'bg-green-100 border-green-500'
                     : i === kuis.jawab
                       ? 'bg-red-100 border-red-400'
-                      : 'bg-slate-50 border-slate-100 opacity-60'
+                      : 'bg-slate-50 border-slate-100 opacity-50'
                 return (
                   <button key={i} onClick={() => jawabKuis(i)} disabled={terjawab}
-                    className={`text-left text-sm px-3 py-2.5 rounded-xl border-2 transition-all ${stil}`}>
+                    className={`text-left text-sm px-3 py-2 rounded-lg border-2 transition-all ${stil}`}>
                     <b>{'ABCD'[i]}.</b> {o}
                   </button>
                 )
               })}
             </div>
             {kuis.jawab != null && (
-              <div className="mt-4">
-                <div className={`font-black mb-1 ${kuis.jawab === kuis.item.benar ? 'text-green-600' : 'text-red-500'}`}>
-                  {kuis.jawab === kuis.item.benar
-                    ? `Benar! +${kuis.tipe === 'rec' ? 20 : 10} poin`
-                    : 'Kurang tepat (0 poin)'}
-                </div>
-                <p className="text-xs text-slate-600 bg-slate-100 rounded-lg p-2.5">{kuis.item.info}</p>
-                <button onClick={tutupKuis}
-                  className={`${btn} w-full mt-3 py-2.5 bg-blue-900 text-white hover:bg-blue-800`}>
-                  {kuis.tipe === 'rec' ? 'Tangani & Lanjut' : 'Masukkan ke Tas & Lanjut'}
-                </button>
+              <div className={`mt-3 text-sm font-bold flex items-center gap-2 ${kuis.jawab === kuis.item.benar ? 'text-green-600' : 'text-red-500'}`}>
+                <Ikon jenis={kuis.jawab === kuis.item.benar ? 'perisai' : 'gagal'} className="w-4 h-4 flex-shrink-0" />
+                {kuis.jawab === kuis.item.benar
+                  ? `Benar +${kuis.tipe === 'rec' ? 20 : 10}!`
+                  : 'Kurang tepat.'} <span className="font-normal text-slate-500">{kuis.item.info}</span>
               </div>
             )}
           </div>
