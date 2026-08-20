@@ -1337,6 +1337,8 @@ export default function LkpdDetailPage() {
   const [petaPernahDibuka, setPetaPernahDibuka] = useState(false)
   const [faseView, setFaseView] = useState<'intro' | 'Memahami' | 'Mengaplikasi' | 'Merefleksi' | 'selesai'>('intro')
   const [transisi, setTransisi] = useState(false)
+  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
+  const [submitMsg, setSubmitMsg] = useState('')
   const chartRefs = useRef<Record<number, Chart>>({})
 
   const cacheKey = `lkpd-cache-${params.id}`
@@ -1362,6 +1364,12 @@ export default function LkpdDetailPage() {
       localStorage.setItem(cacheKey, JSON.stringify({ identitas, identitasSelesai, jawaban, tabelData, diagramData, faseSelesai, faseView }))
     } catch (_) {}
   }, [identitas, identitasSelesai, jawaban, tabelData, diagramData, faseSelesai, faseView, cacheKey])
+
+  // Tandai LKPD yang sudah dikirim -> cegah dobel-submit walau di-refresh
+  const submitFlagKey = `lkpd-submitted-${params.id}`
+  useEffect(() => {
+    if (localStorage.getItem(submitFlagKey)) setSubmitState('done')
+  }, [submitFlagKey])
 
   useEffect(() => {
     const fetchLkpd = async () => {
@@ -1476,6 +1484,77 @@ export default function LkpdDetailPage() {
     if (typeof v === 'object') return Object.keys(v).length > 0 || (Array.isArray(v) && v.length > 0)
     if (typeof v === 'string') return v.length > 0
     return true
+  }
+
+  // ============================================================
+  // SUBMIT JAWABAN -> SUPABASE STORAGE (bucket: LKPD)
+  // ============================================================
+  // Bersihkan teks agar aman jadi nama file/folder di Storage
+  const safeKey = (s: string) =>
+    (s || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .trim().replace(/\s+/g, '_')
+      .slice(0, 50) || 'tanpa-nama'
+
+  const submitLkpd = async () => {
+    if (!lkpd) return
+    setSubmitState('sending'); setSubmitMsg('')
+
+    try {
+      // Dihitung lokal: `aktivitas`/`faseTersedia` global baru ada setelah
+      // early-return `if (!lkpd)`, jadi tak tersedia di scope ini.
+      const daftarAktivitas = lkpd.pertanyaan || []
+      const daftarFase = FASE_URUT.filter(f =>
+        daftarAktivitas.some(a => (a.fase || 'Memahami') === f))
+
+      let benarTotal = 0, soalTotal = 0
+      const rekapFase = daftarFase.map(f => {
+        const items = daftarAktivitas.filter(a =>
+          (a.fase || 'Memahami') === f && isAutoGrade(a.tipe))
+        const benar = items.reduce((s, a) => s + (getScore(a)?.benar || 0), 0)
+        const soal = items.reduce((s, a) => s + (getScore(a)?.total || 0), 0)
+        benarTotal += benar; soalTotal += soal
+        return { fase: f, benar, soal }
+      })
+
+      const payload = {
+        lkpd_id: params.id,
+        lkpd_judul: lkpd.judul,
+        kabupaten: lkpd.kabupaten?.nama || '',
+        jenis_bencana: lkpd.jenis_bencana?.nama || '',
+        identitas,
+        waktu_submit: new Date().toISOString(),
+        skor_total: benarTotal,
+        skor_maks: soalTotal,
+        persentase: soalTotal > 0 ? Math.round((benarTotal / soalTotal) * 100) : null,
+        rekap_fase: rekapFase,
+        jawaban, tabelData, diagramData,
+      }
+
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const path = [
+        safeKey(lkpd.judul),
+        safeKey(identitas.sekolah),
+        safeKey(identitas.kelas),
+        `${safeKey(identitas.nama)}__${ts}.json`,
+      ].join('/')
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+
+      const { error } = await supabase.storage
+        .from('LKPD')
+        .upload(path, blob, { contentType: 'application/json', upsert: false })
+
+      if (error) throw error
+
+      localStorage.setItem(submitFlagKey, new Date().toISOString())
+      setSubmitState('done')
+    } catch (err: any) {
+      console.error('Submit LKPD gagal:', err)
+      setSubmitMsg(err?.message || 'Terjadi kesalahan.')
+      setSubmitState('error')
+    }
   }
 
   // ============================================================
@@ -2204,13 +2283,49 @@ export default function LkpdDetailPage() {
 
               {/* Cetak PDF */}
               <div className="bg-white border border-gray-200 rounded-2xl p-6 mt-5 text-center">
-                <p className="text-sm font-semibold text-gray-800 mb-1">Simpan hasil pekerjaanmu</p>
-                <p className="text-xs text-gray-400 mb-4">Cetak atau unduh LKPD lengkap beserta seluruh jawabanmu dalam format PDF.</p>
-                <button onClick={generatePDF} disabled={generating}
-                  className="bg-blue-950 hover:bg-blue-900 text-white px-6 py-3 rounded-xl font-semibold text-sm transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-950/20">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.056 48.056 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" /></svg>
-                  {generating ? 'Menyiapkan PDF...' : 'Cetak / Download PDF'}
-                </button>
+                <p className="text-sm font-semibold text-gray-800 mb-1">Kirim &amp; simpan hasil pekerjaanmu</p>
+                <p className="text-xs text-gray-400 mb-4">Kirim jawabanmu ke guru, lalu unduh salinan PDF untuk arsip pribadimu.</p>
+
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button onClick={submitLkpd} disabled={submitState === 'sending' || submitState === 'done'}
+                    className={`px-6 py-3 rounded-xl font-semibold text-sm transition-all inline-flex items-center gap-2 shadow-lg
+                      ${submitState === 'done'
+                        ? 'bg-emerald-600 text-white shadow-emerald-600/20 cursor-default'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20 disabled:opacity-60'}`}>
+                    {submitState === 'sending' && (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>
+                        Mengirim...
+                      </>
+                    )}
+                    {submitState === 'done' && (
+                      <>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                        Jawaban Terkirim
+                      </>
+                    )}
+                    {(submitState === 'idle' || submitState === 'error') && (
+                      <>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>
+                        {submitState === 'error' ? 'Coba Kirim Lagi' : 'Kirim Jawaban'}
+                      </>
+                    )}
+                  </button>
+
+                  <button onClick={generatePDF} disabled={generating}
+                    className="bg-blue-950 hover:bg-blue-900 text-white px-6 py-3 rounded-xl font-semibold text-sm transition-all inline-flex items-center gap-2 shadow-lg shadow-blue-950/20">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.056 48.056 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" /></svg>
+                    {generating ? 'Menyiapkan PDF...' : 'Cetak / Download PDF'}
+                  </button>
+                </div>
+
+                {submitState === 'done' && (
+                  <p className="text-xs text-emerald-600 mt-3">Jawabanmu sudah tersimpan. Terima kasih!</p>
+                )}
+                {submitState === 'error' && (
+                  <p className="text-xs text-red-500 mt-3">Gagal mengirim: {submitMsg}</p>
+                )}
+
                 <div className="mt-4">
                   <button onClick={() => pindahFase(faseTersedia[faseTersedia.length - 1])}
                     className="text-xs text-gray-400 hover:text-gray-600 transition-all inline-flex items-center gap-1.5">
