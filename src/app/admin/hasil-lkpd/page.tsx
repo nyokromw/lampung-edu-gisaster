@@ -546,98 +546,179 @@ function JawabanList({ detail, lkpd }: { detail: Detail; lkpd: any | null }) {
   )
 }
 
+const MUTED = "text-sm text-gray-400 italic"
+
+// Render satu jawaban aktivitas. Kunci penyimpanan meniru halaman siswa:
+//   esai/pg/paint/peta/tts/matching/kategorisasi -> jawaban[a.id]
+//   tabel -> tabelData[a.id]; diagram -> diagramData[a.id]
+//   peta: objek di jawaban[a.id] (array {label,tipe}), analisis di jawaban[`${a.id}_analisis`]
 function RenderJawaban({ a, detail }: { a: any; detail: Detail }) {
-  const val = (detail.jawaban || {})[a.id]
-  const muted = "text-sm text-gray-400 italic"
+  const j = detail.jawaban || {}
+  const val = j[a.id]
 
   switch (a.tipe) {
-    case 'esai': {
-      return val ? <p className="text-sm text-gray-700 whitespace-pre-wrap">{String(val)}</p>
-        : <p className={muted}>Tidak dijawab</p>
-    }
-    case 'pilihan_ganda': {
-      if (val === undefined || val === null) return <p className={muted}>Tidak dijawab</p>
-      const pilihan = a.pilihan || []
-      const benar = val === a.jawaban_benar
-      return (
-        <p className={`text-sm font-medium ${benar ? 'text-emerald-700' : 'text-red-600'}`}>
-          {benar ? '✓' : '✗'} {pilihan[val] ?? `(opsi ${val})`}
-          {!benar && a.jawaban_benar != null && (
-            <span className="text-gray-400 font-normal"> — kunci: {pilihan[a.jawaban_benar]}</span>
-          )}
-        </p>
-      )
-    }
-    case 'tabel': {
-      const grid = (detail.tabelData || {})[a.id] || []
-      if (grid.length === 0) return <p className={muted}>Tidak dijawab</p>
-      return <MiniTable head={a.kolom_tabel} rows={grid} />
-    }
-    case 'diagram': {
-      const grid = (detail.diagramData || {})[a.id] || []
-      if (grid.length === 0) return <p className={muted}>Tidak dijawab</p>
-      return <MiniTable head={a.kolom_diagram} rows={grid} />
-    }
+    case 'esai':
+      return <EsaiView text={val} soal={a.soal} />
+    case 'pilihan_ganda':
+      return <PGView value={val} pilihan={a.pilihan} benar={a.jawaban_benar} soal={a.soal} />
+    case 'tabel':
+      return <TableView head={a.kolom_tabel} rows={(detail.tabelData || {})[a.id]} labels={a.label_terkunci} soal={a.soal} />
+    case 'diagram':
+      return <TableView head={a.kolom_diagram} rows={(detail.diagramData || {})[a.id]} soal={a.soal} />
+    case 'paint':
+      return <PaintView data={val} />
+    case 'peta':
+      return <PetaView objs={val} analisis={j[`${a.id}_analisis`]} pertanyaan={a.peta_pertanyaan} />
     case 'tts':
     case 'matching':
     case 'kategorisasi': {
-      // Auto-nilai — skor sudah tercermin di rekap fase.
       const answered = val && (typeof val === 'object' ? Object.keys(val).length > 0 : true)
-      return <p className={answered ? "text-sm text-gray-500" : muted}>
+      return <p className={answered ? "text-sm text-gray-500" : MUTED}>
         {answered ? 'Dikerjakan (skor tercatat di ringkasan fase di atas).' : 'Tidak dijawab'}
       </p>
     }
-    case 'paint':
-    case 'peta':
-      return <p className={muted}>Jawaban visual — lihat versi PDF siswa.</p>
     case 'multi':
-      return <MultiDump a={a} detail={detail} />
+      return <MultiView a={a} detail={detail} />
     default:
       return val
         ? <pre className="text-xs text-gray-600 whitespace-pre-wrap break-words">{JSON.stringify(val, null, 2)}</pre>
-        : <p className={muted}>Tidak dijawab</p>
+        : <p className={MUTED}>Tidak dijawab</p>
   }
 }
 
-function MiniTable({ head, rows }: { head?: string[]; rows: string[][] }) {
+// Aktivitas gabungan: render tiap komponen dengan renderer yang sama.
+// Kunci komponen: jawaban[`${a.id}__${kid}`], _tabel, _diagram, _peta.
+function MultiView({ a, detail }: { a: any; detail: Detail }) {
+  const komp: any[] = a.komponen || []
+  const j = detail.jawaban || {}
+  const label: Record<string, string> = { esai: 'Pertanyaan', pilihan_ganda: 'Pilihan Ganda', tabel: 'Isi Tabel', diagram: 'Diagram', paint: 'Menggambar', peta: 'Peta' }
   return (
-    <div className="overflow-x-auto">
-      <table className="text-xs border border-gray-200 rounded">
-        {head && head.length > 0 && (
-          <thead><tr className="bg-gray-50">
-            {head.map((h, i) => <th key={i} className="border border-gray-200 px-2 py-1 text-left font-semibold text-gray-600">{h}</th>)}
-          </tr></thead>
-        )}
-        <tbody>
-          {rows.map((r, ri) => (
-            <tr key={ri}>{r.map((c, ci) => <td key={ci} className="border border-gray-200 px-2 py-1 text-gray-700">{c || '—'}</td>)}</tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-4">
+      {komp.map((k, i) => {
+        const kk = `${a.id}__${k.kid}`
+        let inner: any
+        switch (k.tipe) {
+          case 'esai': inner = <EsaiView text={j[kk]} soal={k.soal} />; break
+          case 'pilihan_ganda': inner = <PGView value={j[kk]} pilihan={k.pilihan} benar={k.jawaban_benar} soal={k.soal} />; break
+          case 'tabel': inner = <TableView head={k.kolom_tabel} rows={j[`${kk}_tabel`]} labels={k.label_terkunci} soal={k.soal} />; break
+          case 'diagram': inner = <TableView head={k.kolom_diagram} rows={j[`${kk}_diagram`]} soal={k.soal} />; break
+          case 'paint': inner = <PaintView data={j[kk]} />; break
+          case 'peta': inner = <PetaView objs={j[`${kk}_peta`]} analisis={j[kk]} pertanyaan={k.peta_pertanyaan} />; break
+          default: inner = j[kk] ? <pre className="text-xs text-gray-600 whitespace-pre-wrap break-words">{JSON.stringify(j[kk], null, 2)}</pre> : <p className={MUTED}>Tidak dijawab</p>
+        }
+        return (
+          <div key={k.kid ?? i} className="border-l-2 border-gray-100 pl-3">
+            <p className="text-[10px] uppercase tracking-wide text-gray-400 font-bold mb-1">{i + 1}. {label[k.tipe] || k.tipe}</p>
+            {inner}
+          </div>
+        )
+      })}
     </div>
   )
 }
 
-function MultiDump({ a, detail }: { a: any; detail: Detail }) {
-  const komp: any[] = a.komponen || []
-  const j = detail.jawaban || {}
+// ---- Sub-renderer per jenis jawaban ----
+
+function EsaiView({ text, soal }: { text?: any; soal?: string }) {
+  return (
+    <div>
+      {soal && <p className="text-xs font-semibold text-gray-600 mb-1">{soal}</p>}
+      {text ? <p className="text-sm text-gray-700 whitespace-pre-wrap">{String(text)}</p>
+        : <p className={MUTED}>Belum dijawab</p>}
+    </div>
+  )
+}
+
+function PGView({ value, pilihan, benar, soal }: { value?: any; pilihan?: string[]; benar?: number; soal?: string }) {
+  if (value === undefined || value === null) return (
+    <div>{soal && <p className="text-xs font-semibold text-gray-600 mb-1">{soal}</p>}<p className={MUTED}>Belum dijawab</p></div>
+  )
+  const opsi = pilihan || []
+  const tepat = value === benar
+  return (
+    <div>
+      {soal && <p className="text-xs font-semibold text-gray-600 mb-1">{soal}</p>}
+      <p className={`text-sm font-medium ${tepat ? 'text-emerald-700' : 'text-red-600'}`}>
+        {tepat ? '✓' : '✗'} {String.fromCharCode(65 + Number(value))}. {opsi[value] ?? `(opsi ${value})`}
+        {!tepat && benar != null && <span className="text-gray-400 font-normal"> — kunci: {opsi[benar]}</span>}
+      </p>
+    </div>
+  )
+}
+
+// Meniru PDF: bila baris kosong tapi ada label_terkunci, bangun baris dari label.
+function TableView({ head, rows, labels, soal }: { head?: string[]; rows?: string[][]; labels?: string[]; soal?: string }) {
+  const kolom = head || []
+  let data = Array.isArray(rows) ? rows : []
+  if (data.length === 0 && labels && labels.length > 0) data = labels.map(l => [l])
+  if (data.length === 0) return (
+    <div>{soal && <p className="text-xs font-semibold text-gray-600 mb-1">{soal}</p>}<p className={MUTED}>Belum dijawab</p></div>
+  )
+  return (
+    <div>
+      {soal && <p className="text-xs font-semibold text-gray-600 mb-1">{soal}</p>}
+      <div className="overflow-x-auto">
+        <table className="text-xs border-collapse w-full">
+          {kolom.length > 0 && (
+            <thead><tr className="bg-blue-950">
+              {kolom.map((h, i) => <th key={i} className="border border-blue-900 px-2.5 py-1.5 text-left font-semibold text-white">{h}</th>)}
+            </tr></thead>
+          )}
+          <tbody>
+            {data.map((r, ri) => (
+              <tr key={ri} className={ri % 2 ? 'bg-slate-50' : 'bg-white'}>
+                {(kolom.length > 0 ? kolom.map((_, ci) => ci) : r.map((_, ci) => ci)).map(ci => (
+                  <td key={ci} className="border border-gray-200 px-2.5 py-1.5 text-gray-700">{(r && r[ci]) || '—'}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function PaintView({ data }: { data?: any }) {
+  if (typeof data === 'string' && data.startsWith('data:image')) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={data} alt="Gambar siswa" className="w-full rounded-lg border border-gray-200" />
+  }
+  return <p className={MUTED}>Belum ada gambar</p>
+}
+
+function PetaView({ objs, analisis, pertanyaan }: { objs?: any; analisis?: any; pertanyaan?: string }) {
+  const list: any[] = Array.isArray(objs) ? objs : []
   return (
     <div className="space-y-2">
-      {komp.map((k, i) => {
-        const base = j[`${a.id}__${k.kid}`]
-        const tab = j[`${a.id}__${k.kid}_tabel`]
-        const isi = base ?? (Array.isArray(tab) ? tab : undefined)
-        return (
-          <div key={k.kid ?? i} className="text-sm">
-            <p className="text-[11px] text-gray-400">{k.tipe}{k.soal ? ` — ${k.soal}` : ''}</p>
-            {isi === undefined || isi === '' || isi === null
-              ? <p className="text-gray-400 italic">Tidak dijawab</p>
-              : typeof isi === 'string'
-                ? <p className="text-gray-700 whitespace-pre-wrap">{isi}</p>
-                : <pre className="text-xs text-gray-600 whitespace-pre-wrap break-words">{JSON.stringify(isi, null, 2)}</pre>}
-          </div>
-        )
-      })}
+      <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
+        <p className="text-[10px] font-bold text-sky-700 tracking-wide mb-2">OBJEK DIBUAT DI PETA ({list.length})</p>
+        {list.length === 0 ? <p className={MUTED}>Belum ada objek</p> : (
+          <table className="text-xs w-full border-collapse">
+            <thead><tr className="bg-sky-700 text-white">
+              <th className="border border-sky-700 px-2 py-1 text-left w-8">No</th>
+              <th className="border border-sky-700 px-2 py-1 text-left">Label</th>
+              <th className="border border-sky-700 px-2 py-1 text-left">Tipe</th>
+            </tr></thead>
+            <tbody>
+              {list.map((it, i) => (
+                <tr key={i} className={i % 2 ? 'bg-sky-50' : 'bg-white'}>
+                  <td className="border border-sky-200 px-2 py-1 text-gray-700">{i + 1}</td>
+                  <td className="border border-sky-200 px-2 py-1 text-gray-700 font-medium">{it?.label ?? '—'}</td>
+                  <td className="border border-sky-200 px-2 py-1 text-gray-500 capitalize">{it?.tipe ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {pertanyaan && (
+        <div>
+          <p className="text-xs font-semibold text-gray-600 mb-1">{pertanyaan}</p>
+          {analisis ? <p className="text-sm text-gray-700 whitespace-pre-wrap">{String(analisis)}</p>
+            : <p className={MUTED}>Belum dijawab</p>}
+        </div>
+      )}
     </div>
   )
 }
