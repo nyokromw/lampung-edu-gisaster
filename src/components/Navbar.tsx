@@ -1,8 +1,9 @@
-'use client'
+"use client";
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 const MENU = [
   {
@@ -81,40 +82,42 @@ const MENU = [
 
 export default function Navbar() {
   const pathname = usePathname()
+  const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const matches = query.trim() ? MENU.filter(item => item.label.toLowerCase().includes(query.trim().toLowerCase())) : MENU.slice(0, 4)
 
   if (pathname.startsWith('/admin')) return null
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-[2000] h-16 bg-gradient-to-r from-blue-950 to-blue-900 border-b border-white/10 shadow-lg shadow-black/20">
-      <div className="max-w-7xl mx-auto px-6 h-full flex items-center justify-between gap-4">
+    <nav className="site-nav" aria-label="Navigasi utama">
+      <div className="site-nav-inner">
 
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 flex-shrink-0">
+        <Link href="/" className="site-brand" onClick={() => setMobileOpen(false)}>
           <img
             src="https://pgptvvqfagpbdbjrtrqt.supabase.co/storage/v1/object/public/about-assets/LOGO%20(1).jpg"
             alt="Lampung Edu Gisaster"
-            className="w-9 h-9 rounded-xl object-cover shadow-md shadow-teal-900/40"
+            className="site-brand-image"
           />
-          <span className="font-bold text-white text-sm hidden sm:block leading-tight">
+          <span className="site-brand-name">
             Lampung Edu<br />
-            <span className="text-teal-300 font-semibold text-xs">Gisaster</span>
+            <span>Gisaster</span>
           </span>
         </Link>
 
         {/* Desktop menu */}
-        <div className="hidden lg:flex items-center gap-0.5">
+        <div className="site-nav-links">
           {MENU.map(item => {
             const active = item.href === '/'
               ? pathname === '/'
               : pathname.startsWith(item.href)
             return (
               <Link key={item.href} href={item.href}
-                className={`flex items-center gap-1.5 text-[12px] font-medium px-3 py-2 rounded-lg transition-all whitespace-nowrap
-                  ${active
-                    ? 'bg-amber-400 text-blue-950 shadow-sm shadow-amber-900/20'
-                    : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}>
+                aria-current={active ? 'page' : undefined}
+                className={`site-nav-link ${active ? 'is-active' : ''}`}>
                 {item.icon}
                 {item.label}
               </Link>
@@ -122,9 +125,23 @@ export default function Navbar() {
           })}
         </div>
 
+        <div className="site-search-wrap">
+          <form className="site-search" role="search" onSubmit={event => { event.preventDefault(); if (query.trim() && matches[0]) { router.push(matches[0].href); setSearchOpen(false); setQuery('') } }}>
+            <button type="button" aria-label="Cari halaman" className="site-search-trigger" onClick={() => searchRef.current?.focus()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 5 5" /></svg></button>
+            <input ref={searchRef} type="search" aria-label="Cari halaman" placeholder="Cari halaman atau fitur..." value={query} onChange={event => { setQuery(event.target.value); setSearchOpen(true) }} onFocus={() => setSearchOpen(true)} onKeyDown={event => { if (event.key === 'Escape') setSearchOpen(false) }} />
+          </form>
+          {searchOpen && query.trim() && <div className="site-search-results" role="listbox" aria-label="Hasil pencarian halaman">
+            {matches.length ? matches.map(item => <Link key={item.href} href={item.href} role="option" aria-selected={false} onClick={() => { setSearchOpen(false); setQuery('') }} className="site-search-result">{item.icon}<span>{item.label}</span></Link>) : <p>Halaman tidak ditemukan.</p>}
+          </div>}
+        </div>
+
         {/* Mobile hamburger */}
         <button
-          className="lg:hidden text-white/70 hover:text-white p-2"
+          className="site-menu-toggle"
+          type="button"
+          aria-label={mobileOpen ? 'Tutup menu' : 'Buka menu'}
+          aria-expanded={mobileOpen}
+          aria-controls="site-mobile-menu"
           onClick={() => setMobileOpen(!mobileOpen)}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             {mobileOpen
@@ -137,14 +154,14 @@ export default function Navbar() {
 
       {/* Mobile dropdown */}
       {mobileOpen && (
-        <div className="lg:hidden absolute top-16 left-0 right-0 bg-blue-950/98 backdrop-blur border-t border-white/10 py-2 px-4 flex flex-col gap-1 shadow-xl">
+        <div id="site-mobile-menu" className="site-mobile-menu">
           {MENU.map(item => {
             const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
             return (
               <Link key={item.href} href={item.href}
                 onClick={() => setMobileOpen(false)}
-                className={`flex items-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg transition-all
-                  ${active ? 'bg-amber-400 text-blue-950' : 'text-white/70 hover:text-white hover:bg-white/10'}`}>
+                aria-current={active ? 'page' : undefined}
+                className={`site-mobile-link ${active ? 'is-active' : ''}`}>
                 {item.icon}
                 {item.label}
               </Link>

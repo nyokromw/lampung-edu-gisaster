@@ -1,117 +1,49 @@
 import Link from 'next/link'
-import ParticleCanvas from '@/components/ParticleCanvas'
 import ImageCarousel from '@/components/ImageCarousel'
 
+const features = [
+  { title: 'Edukasi Bencana', detail: 'Kenali ancaman, mitigasi, dan langkah kesiapsiagaan.', href: '/materi', tone: 'blue', icon: <><path d="M12 2.5 20 6v5.4c0 5.1-3.3 8.3-8 10.1-4.7-1.8-8-5-8-10.1V6l8-3.5Z" /><path d="M12 6v11m-4-4 4 4 4-4" /></> },
+  { title: 'Peta Interaktif', detail: 'Jelajahi informasi spasial kebencanaan Lampung.', href: '/peta', tone: 'teal', icon: <><path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5Z" /><path d="M9 3v16m6-14v16" /></> },
+  { title: 'Deep Learning', detail: 'Analisis masalah nyata dan bangun pemahaman mendalam.', href: '/lkpd', tone: 'violet', icon: <><path d="M9 4a3 3 0 0 0-4 4 3.5 3.5 0 0 0-.5 6A3.5 3.5 0 0 0 9 19m6-15a3 3 0 0 1 4 4 3.5 3.5 0 0 1 .5 6A3.5 3.5 0 0 1 15 19M9 4v15a3 3 0 0 0 6 0V4a3 3 0 0 0-6 0Z" /><path d="M7 10h2m6 0h2M7 15h2m6 0h2" /></> },
+  { title: 'Literasi Bencana Spasial', detail: 'Baca peta, pahami risiko, dan tentukan tindakan.', href: '/sdl-test', tone: 'amber', icon: <><path d="M12 5c-2.5-1.5-5.4-1.6-9-.5v15c3.6-1.1 6.5-1 9 .5 2.5-1.5 5.4-1.6 9-.5v-15C17.4 3.4 14.5 3.5 12 5Z" /><path d="M12 5v15m-6-12h3m6 0h3m-12 4h3m6 0h3" /></> },
+]
+
+function Arrow() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg> }
+
+function Landscape() {
+  return <svg className="home-landscape" viewBox="0 0 1440 280" preserveAspectRatio="xMidYMax slice" role="img" aria-label="Ilustrasi siluet Menara Siger, perbukitan, dan pesisir Lampung">
+    <path fill="#d8efff" d="M0 118c80-66 141-67 218-32 74 34 106 65 178 37 93-36 157-67 248-8 68 44 120 39 199 0 93-45 167-32 226 15 64 51 133 23 201-32 67-55 116-67 170-42v224H0Z" />
+    <path fill="#a9d9f4" d="M0 154c84-32 131-26 203 21 46 30 123 45 189 20 68-27 135-19 204 10 74 30 159 22 221-13 82-46 162-38 222 8 47 36 108 47 185 15 86-35 143-88 216-81v146H0Z" />
+    <path fill="#69b9e1" d="M0 215c129-27 219 57 320 36 92-18 120-36 234-17 100 16 154 32 265 5 109-27 194-26 280 10 89 37 205-48 341-16v47H0Z" />
+    <g fill="#2879a5" opacity=".75"><path d="M37 229 65 160l28 69Zm42 1 28-88 31 88Zm70 3 17-53 19 53Zm1098 8 26-69 24 69Zm36 2 34-89 36 89Z" /></g>
+    <g transform="translate(86 110)" fill="#155f89" stroke="#155f89" strokeLinejoin="round"><path d="M22 110h71l-9-10H30Z" /><path d="M29 99h58L78 64H38Z" /><path d="M38 63h40l-7-12H45Z" /><path d="M47 50h22l-3-21H50Z" /><path d="M54 28h8L58 4Z" /><path d="M17 62q9 16 20-2 8 15 21-3 13 18 22 3 12 17 23 2-7 25-29 15H47Q24 86 17 62Z" strokeWidth="2" /><path d="M41 91h33m-29-9h25" fill="none" stroke="#a9d9f4" strokeWidth="3" /></g>
+    <path fill="#eef9ff" d="M0 254c164-15 303 34 463 22 125-9 200-27 350-9 138 17 265 1 370-14 113-17 173-7 257 7v20H0Z" />
+  </svg>
+}
+
 export default function HomePage() {
-  return (
-    <main className="min-h-screen bg-[#020810]">
-      <section
-        className="relative h-[calc(100vh-64px)] overflow-hidden"
-        style={{
-          background: 'linear-gradient(160deg, #020810 0%, #071229 30%, #0c1940 60%, #0a0f2e 100%)',
-        }}
-      >
-        <ParticleCanvas />
-
-        {/* Glows */}
-        <div className="absolute -top-24 -right-24 w-[400px] h-[400px] rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(20,184,166,0.06) 0%, transparent 70%)' }} />
-        <div className="absolute bottom-0 left-0 w-[500px] h-[300px] rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(ellipse, rgba(99,102,241,0.04) 0%, transparent 70%)' }} />
-
-        {/* ══════ GRID ══════ */}
-        <div className="relative z-10 h-full flex items-center max-w-7xl mx-auto w-full px-6 sm:px-10 lg:px-16">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-8 lg:gap-12 items-center w-full">
-
-            {/* ── LEFT ── */}
-            <div>
-              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-medium text-amber-400 mb-5"
-                style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.15)' }}>
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                Platform Edukasi Kebencanaan Lampung
-              </span>
-
-              <h1 className="text-[clamp(32px,4.5vw,52px)] font-extrabold text-white leading-[1.05] tracking-tight">
-                Lampung Edu
-              </h1>
-              <h1 className="text-[clamp(32px,4.5vw,52px)] font-extrabold leading-[1.05] tracking-tight mb-5"
-                style={{ background: 'linear-gradient(135deg, #14b8a6, #818cf8, #f59e0b)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                Gisaster
-              </h1>
-
-              <p className="text-[15px] mb-4" style={{ color: 'rgba(186,207,247,0.6)' }}>
-                Media edukasi bencana berbasis{' '}
-                <span className="text-teal-400 font-semibold">Web-GIS</span>
-                {' '}dan pendekatan{' '}
-                <span className="text-violet-400 font-semibold">Deep Learning</span>
-              </p>
-
-              <p className="text-[13px] leading-[1.75] mb-8 max-w-[480px]" style={{ color: 'rgba(186,207,247,0.35)' }}>
-                Platform interaktif untuk menyajikan peta rawan bencana dan faktor kebencanaan
-                Provinsi Lampung guna meningkatkan{' '}
-                <span className="text-teal-400/70 font-medium">spatial disaster literacy</span> siswa.
-              </p>
-
-              <div className="flex flex-wrap gap-3">
-                <Link href="/peta"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-semibold
-                    bg-gradient-to-r from-amber-400 to-yellow-500 text-blue-950
-                    hover:from-amber-400 hover:to-orange-500
-                    hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(245,158,11,0.3)]
-                    shadow-[0_4px_12px_rgba(245,158,11,0.15)]
-                    transition-all duration-200">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
-                  </svg>
-                  Jelajahi Peta
-                </Link>
-                <Link href="/materi"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-semibold
-                    text-white border border-indigo-500/30 bg-indigo-500/15 hover:bg-indigo-500/30
-                    hover:-translate-y-0.5 transition-all duration-200">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-                  </svg>
-                  Pelajari Materi
-                </Link>
-                <Link href="/lkpd"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-semibold
-                    text-white border border-teal-500/25 bg-teal-500/[0.12] hover:bg-teal-500/25
-                    hover:-translate-y-0.5 transition-all duration-200">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 3.741-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
-                  </svg>
-                  Kerjakan E-LKPD
-                </Link>
-              </div>
-            </div>
-
-            {/* ── RIGHT: Carousel only ── */}
-            <div className="w-full h-[55vh] min-h-[320px] max-h-[480px]">
-              <ImageCarousel />
-            </div>
-
+  return <main className="home-page">
+    <section className="home-hero" aria-labelledby="home-title">
+      <div className="home-cloud home-cloud-one" aria-hidden="true" /><div className="home-cloud home-cloud-two" aria-hidden="true" />
+      <div className="home-container home-main-grid">
+        <div className="home-copy">
+          <span className="home-eyebrow"><span className="home-eyebrow-dot" />Platform Edukasi Kebencanaan Lampung</span>
+          <h1 id="home-title">Lampung Edu<br /><span>Gisaster</span></h1>
+          <p className="home-lead">Media edukasi bencana berbasis <strong>Web-GIS</strong> dan pendekatan <strong>Deep Learning</strong></p>
+          <p className="home-description">Jelajahi peta rawan bencana, pahami lingkungan sekitar, dan latih kemampuan mengambil keputusan berbasis informasi spasial.</p>
+          <div className="home-actions">
+            <Link className="home-button home-button-primary" href="/peta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5Zm6-2v16m6-14v16" /></svg>Jelajahi Peta<Arrow /></Link>
+            <Link className="home-button home-button-secondary" href="/materi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5C9.5 3.5 6.5 3.5 3 4.5v15c3.5-1 6.5-1 9 .5 2.5-1.5 5.5-1.5 9-.5v-15c-3.5-1-6.5-1-9 .5Zm0 0v15" /></svg>Pelajari Materi<Arrow /></Link>
+            <Link className="home-button home-button-outline" href="/lkpd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M3 8 12 4l9 4-9 4-9-4Zm3 2v6c4 3 8 3 12 0v-6m3-2v8" /></svg>Kerjakan E-LKPD<Arrow /></Link>
           </div>
         </div>
-      </section>
-
-      {/* ═══ FOOTER ═══ */}
-      <footer className="px-6 sm:px-10 lg:px-16 py-5 flex items-center justify-between flex-wrap gap-4"
-        style={{ background: '#020810', borderTop: '1px solid rgba(99,102,241,0.06)' }}>
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #14b8a6, #6366f1)' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-xs font-bold text-white">Lampung Edu Gisaster</p>
-            <p className="text-[10px]" style={{ color: 'rgba(186,207,247,0.25)' }}>FKIP Universitas Lampung</p>
-          </div>
-        </div>
-        <p className="text-[10px]" style={{ color: 'rgba(186,207,247,0.15)' }}>© 2025 — Platform GIS Edukasi Kebencanaan</p>
-      </footer>
-    </main>
-  )
+        <div className="home-carousel-wrap"><ImageCarousel /></div>
+      </div>
+      <div className="home-container home-features" aria-label="Fitur utama">
+        {features.map(f => <Link key={f.href} href={f.href} className={`home-feature home-feature-${f.tone}`}><span className="home-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{f.icon}</svg></span><span className="home-feature-body"><strong>{f.title}</strong><span>{f.detail}</span></span><span className="home-feature-arrow" aria-hidden="true"><Arrow /></span></Link>)}
+      </div>
+      <Landscape />
+    </section>
+    <footer className="home-footer"><span>Lampung Edu Gisaster · FKIP Universitas Lampung</span><span>Belajar memahami risiko, mulai dari peta.</span></footer>
+  </main>
 }

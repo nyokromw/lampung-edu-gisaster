@@ -1,4 +1,4 @@
-'use client'
+"use client";
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 
@@ -59,21 +59,13 @@ export default function ImageCarousel() {
   }, [startTimer])
 
   return (
-    <div
-      className="relative w-full rounded-2xl overflow-hidden"
-      style={{
-        height: '320px',
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.08)',
-      }}
-    >
+    <div className="hero-carousel" aria-roledescription="carousel" aria-label="Galeri kebencanaan Lampung">
       {/* Progress bar */}
-      <div className="absolute top-0 left-0 right-0 h-[3px] z-30">
+      <div className="hero-carousel-progress">
         <div
           key={progressKey}
-          className="h-full rounded-r-sm"
+          className="hero-carousel-progress-fill"
           style={{
-            background: 'linear-gradient(90deg, #14b8a6, #6366f1)',
             animation: `progressBar ${INTERVAL}ms linear forwards`,
           }}
         />
@@ -83,10 +75,11 @@ export default function ImageCarousel() {
       {IMAGES.map((img, i) => (
         <div
           key={i}
-          className="absolute inset-0"
+          className="hero-carousel-slide"
+          aria-hidden={current !== i}
           style={{
             opacity: current === i ? 1 : 0,
-            transition: 'opacity 0.8s ease-in-out',
+            transition: 'opacity 0.65s ease-in-out',
             zIndex: current === i ? 1 : 0,
           }}
         >
@@ -105,11 +98,9 @@ export default function ImageCarousel() {
             />
           ) : (
             <div
-              className="w-full h-full flex items-center justify-center"
+              className="hero-carousel-fallback"
               style={{
-                background: `linear-gradient(135deg, rgba(20,184,166,${
-                  0.06 + i * 0.02
-                }), rgba(99,102,241,${0.04 + i * 0.02}))`,
+                background: `linear-gradient(135deg, #104b76, #7dc5e0)`,
               }}
             >
               <div className="text-center">
@@ -118,7 +109,7 @@ export default function ImageCarousel() {
                   height="40"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="rgba(255,255,255,0.15)"
+                  stroke="rgba(255,255,255,0.8)"
                   strokeWidth="1.5"
                   strokeLinecap="round"
                 >
@@ -126,23 +117,18 @@ export default function ImageCarousel() {
                   <circle cx="8.5" cy="8.5" r="1.5" />
                   <path d="m21 15-5-5L5 21" />
                 </svg>
-                <p className="text-white/25 text-xs mt-2">{img.caption}</p>
+                <p className="text-white text-sm mt-2">{img.caption}</p>
               </div>
             </div>
           )}
 
           {/* Gradient overlay */}
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                'linear-gradient(0deg, rgba(5,13,31,0.7) 0%, transparent 50%)',
-            }}
-          />
+          <div className="hero-carousel-shade" />
 
           {/* Caption */}
-          <div className="absolute bottom-5 left-6 z-10">
-            <p className="text-white/85 text-sm font-medium drop-shadow-md">
+          <div className="hero-carousel-caption">
+            <p>
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5a7.5 7.5 0 0 0-7.5 7.5c0 5.5 7.5 11.5 7.5 11.5s7.5-6 7.5-11.5A7.5 7.5 0 0 0 12 2.5Zm0 10.2a2.7 2.7 0 1 1 0-5.4 2.7 2.7 0 0 1 0 5.4Z" /></svg>
               {img.caption}
             </p>
           </div>
@@ -152,14 +138,8 @@ export default function ImageCarousel() {
       {/* Prev button */}
       <button
         onClick={() => goTo(current - 1)}
-        className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full
-          text-white flex items-center justify-center transition-colors cursor-pointer"
-        style={{
-          background: 'rgba(0,0,0,0.4)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          backdropFilter: 'blur(4px)',
-        }}
-        aria-label="Previous slide"
+        className="hero-carousel-arrow hero-carousel-prev"
+        aria-label="Gambar sebelumnya"
       >
         <svg
           width="16"
@@ -177,14 +157,8 @@ export default function ImageCarousel() {
       {/* Next button */}
       <button
         onClick={() => goTo(current + 1)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full
-          text-white flex items-center justify-center transition-colors cursor-pointer"
-        style={{
-          background: 'rgba(0,0,0,0.4)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          backdropFilter: 'blur(4px)',
-        }}
-        aria-label="Next slide"
+        className="hero-carousel-arrow hero-carousel-next"
+        aria-label="Gambar berikutnya"
       >
         <svg
           width="16"
@@ -200,19 +174,14 @@ export default function ImageCarousel() {
       </button>
 
       {/* Dots */}
-      <div className="absolute bottom-3 right-6 z-10 flex gap-1.5">
+      <div className="hero-carousel-dots" aria-label="Pilih gambar">
         {IMAGES.map((_, i) => (
           <button
             key={i}
             onClick={() => goTo(i)}
-            aria-label={`Go to slide ${i + 1}`}
-            className="h-2 rounded-full border-none cursor-pointer"
-            style={{
-              width: current === i ? '24px' : '8px',
-              background:
-                current === i ? '#f59e0b' : 'rgba(255,255,255,0.3)',
-              transition: 'all 0.3s ease',
-            }}
+            aria-label={`Tampilkan gambar ${i + 1}`}
+            aria-current={current === i ? 'true' : undefined}
+            className={`hero-carousel-dot ${current === i ? 'is-active' : ''}`}
           />
         ))}
       </div>
