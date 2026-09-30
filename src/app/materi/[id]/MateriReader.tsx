@@ -2,17 +2,23 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import KuisInteraktif, { type Kuis } from '../KuisInteraktif'
 
-// ── Tipe data (samakan dengan editor admin) ──
+type TahapId = 'memahami' | 'mengaplikasi' | 'merefleksi'
+const TAHAP: { id: TahapId; judul: string }[] = [
+  { id: 'memahami', judul: 'Memahami' },
+  { id: 'mengaplikasi', judul: 'Mengaplikasi' },
+  { id: 'merefleksi', judul: 'Merefleksi' },
+]
 type Blok =
   | { id: string; tipe: 'teks'; isi: string }
   | { id: string; tipe: 'gambar'; url: string; caption: string }
   | { id: string; tipe: 'video'; youtubeUrl: string }
   | { id: string; tipe: 'html'; kode: string }
-
-interface Kuis { pertanyaan: string; pilihan: string[]; jawaban_benar: number; pembahasan: string }
-interface Segmen { id: string; judul: string; blok: Blok[]; kuis: Kuis | null }
-
+interface Segmen {
+  id: string; judul: string; blok: Blok[]; kuis: Kuis | null
+  tahap?: TahapId; jenis?: 'tahap' | 'subbab' | 'kuis'; deskripsi?: string
+}
 interface Materi {
   id: string; judul: string; is_konsep_dasar: boolean
   jenis_bencana: { nama: string } | null
@@ -24,157 +30,152 @@ function ytId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/)
   return m ? m[1] : (url.length === 11 ? url : null)
 }
-
 function RenderBlok({ b }: { b: Blok }) {
-  if (b.tipe === 'teks') return <p className="text-[15px] leading-relaxed text-gray-700 whitespace-pre-wrap">{b.isi}</p>
-  if (b.tipe === 'gambar') return b.url ? (
-    <figure className="my-1">
-      <img src={b.url} alt={b.caption || ''} className="rounded-xl w-full object-contain max-h-[420px] bg-gray-50" />
-      {b.caption && <figcaption className="text-xs text-gray-400 mt-1.5 text-center">{b.caption}</figcaption>}
-    </figure>
-  ) : null
+  if (b.tipe === 'teks') return <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-gray-700">{b.isi}</p>
+  if (b.tipe === 'gambar') return b.url ? <figure className="my-1">
+    <img src={b.url} alt={b.caption || ''} className="max-h-[420px] w-full rounded-xl bg-gray-50 object-contain" />
+    {b.caption && <figcaption className="mt-1.5 text-center text-xs text-gray-500">{b.caption}</figcaption>}
+  </figure> : null
   if (b.tipe === 'video') {
     const id = ytId(b.youtubeUrl)
-    return id ? (
-      <div className="aspect-video rounded-xl overflow-hidden bg-black">
-        <iframe className="w-full h-full" src={`https://www.youtube.com/embed/${id}`} allowFullScreen title="video" />
-      </div>
-    ) : null
+    return id ? <div className="aspect-video overflow-hidden rounded-xl bg-black"><iframe className="h-full w-full" src={`https://www.youtube.com/embed/${id}`} allowFullScreen title="video" /></div> : null
   }
-  if (b.tipe === 'html') return b.kode ? (
-    <div className="rounded-xl overflow-hidden border border-gray-100" dangerouslySetInnerHTML={{ __html: b.kode }} />
-  ) : null
+  if (b.tipe === 'html') return b.kode ? <div className="overflow-hidden rounded-xl border border-gray-100" dangerouslySetInnerHTML={{ __html: b.kode }} /> : null
   return null
 }
 
-function KuisView({ kuis, jawaban, onJawab }: { kuis: Kuis; jawaban: number | null; onJawab: (i: number) => void }) {
-  const sudah = jawaban !== null
-  const benar = sudah && jawaban === kuis.jawaban_benar
-  return (
-    <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="w-6 h-6 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-          <svg className="w-3.5 h-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" /></svg>
-        </span>
-        <span className="text-xs font-bold text-amber-700 uppercase tracking-wide">Kuis Singkat</span>
-        <span className="text-[11px] text-amber-500 ml-auto">Cek pemahaman — tidak menghambat lanjut</span>
-      </div>
-      <p className="text-[15px] font-medium text-gray-800 mb-3">{kuis.pertanyaan}</p>
-      <div className="flex flex-col gap-2">
-        {kuis.pilihan.map((p, i) => {
-          const isBenar = i === kuis.jawaban_benar
-          const isPilihan = jawaban === i
-          let cls = 'bg-white border-gray-200 text-gray-700 hover:border-amber-300'
-          if (sudah) {
-            if (isBenar) cls = 'bg-green-50 border-green-400 text-green-800'
-            else if (isPilihan) cls = 'bg-red-50 border-red-400 text-red-700'
-            else cls = 'bg-white border-gray-200 text-gray-400'
-          }
-          return (
-            <button key={i} disabled={sudah} onClick={() => onJawab(i)}
-              className={`text-left text-sm px-4 py-2.5 rounded-xl border-2 transition-all flex items-center gap-2 ${cls} disabled:cursor-default`}>
-              <span className="font-bold text-xs opacity-60">{String.fromCharCode(65 + i)}</span>
-              <span className="flex-1">{p}</span>
-              {sudah && isBenar && <span className="text-green-600 font-bold">✓</span>}
-              {sudah && isPilihan && !isBenar && <span className="text-red-500 font-bold">✗</span>}
-            </button>
-          )
-        })}
-      </div>
-      {sudah && (
-        <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${benar ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
-          <p className="font-semibold mb-0.5">{benar ? 'Tepat! 🎉' : 'Belum tepat — tidak apa-apa.'}</p>
-          {kuis.pembahasan && <p className="text-[13px] opacity-90">{kuis.pembahasan}</p>}
-        </div>
-      )}
+function DaftarIsi({ items, aktif, hasilKuis, onPilih }: {
+  items: Segmen[]; aktif: number; hasilKuis: Record<string, boolean>; onPilih: (index: number) => void
+}) {
+  return <nav aria-label="Daftar isi materi" className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="mb-4 border-b border-gray-100 pb-3">
+      <h2 className="text-sm font-bold text-gray-900">Daftar isi</h2>
+      <p className="mt-1 text-xs text-gray-500">Pilih subbab atau kuis untuk langsung membukanya.</p>
     </div>
-  )
+    <div className="space-y-5">
+      {TAHAP.map((t, tahapIndex) => {
+        const daftar = items.map((item, index) => ({ item, index })).filter(({ item }) => item.tahap === t.id)
+        return <section key={t.id} aria-label={`Tahap ${t.judul}`}>
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-bold text-teal-800">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-100 text-[10px]">{tahapIndex + 1}</span>
+            {t.judul}
+          </h3>
+          {daftar.length === 0 ? <p className="pl-7 text-xs italic text-gray-400">Belum ada isi</p> :
+            <ol className="space-y-1 border-l border-gray-200 pl-2.5 ml-2.5">
+              {daftar.map(({ item, index }) => {
+                const sekarang = index === aktif
+                const kuis = item.jenis === 'kuis'
+                const nomor = daftar.filter(({ item: s, index: n }) => n <= index && s.jenis === item.jenis).length
+                const label = kuis ? item.kuis?.pertanyaan || `Kuis ${nomor}` : item.judul || `Subbab ${nomor}`
+                return <li key={item.id}>
+                  <button type="button" aria-current={sekarang ? 'step' : undefined} onClick={() => onPilih(index)}
+                    className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs leading-snug transition ${sekarang ? 'bg-teal-50 font-semibold text-teal-800 ring-1 ring-teal-200' : 'text-gray-600 hover:bg-gray-50 hover:text-teal-700'}`}>
+                    <span aria-hidden="true" className="mt-px shrink-0">{kuis ? '◇' : '•'}</span>
+                    <span className="min-w-0 flex-1 break-words">{label}</span>
+                    {kuis && hasilKuis[item.id] !== undefined && <span className={`shrink-0 font-bold ${hasilKuis[item.id] ? 'text-green-600' : 'text-amber-600'}`} aria-label={hasilKuis[item.id] ? 'Benar' : 'Perlu dicoba lagi'}>{hasilKuis[item.id] ? '✓' : '↻'}</span>}
+                  </button>
+                </li>
+              })}
+            </ol>}
+        </section>
+      })}
+    </div>
+  </nav>
 }
 
 export default function MateriReader({ materi }: { materi: Materi }) {
-  const segmen = useMemo(() => Array.isArray(materi.segmen) ? materi.segmen : [], [materi])
+  const { items, pengantar } = useMemo(() => {
+    const raw = Array.isArray(materi.segmen) ? materi.segmen : []
+    const hasil: Segmen[] = []
+    const intro: Partial<Record<TahapId, string>> = {}
+    for (const sg of raw) {
+      const tahap = TAHAP.some(t => t.id === sg.tahap) ? sg.tahap! : 'memahami'
+      if (sg.jenis === 'tahap') { intro[tahap] = sg.deskripsi || ''; continue }
+      if (sg.jenis === 'kuis') {
+        if (sg.kuis) hasil.push({ ...sg, tahap, jenis: 'kuis', blok: [] })
+        continue
+      }
+      hasil.push({ ...sg, tahap, jenis: 'subbab', blok: Array.isArray(sg.blok) ? sg.blok : [], kuis: null })
+      // Materi lama menyimpan satu kuis di dalam segmen. Jadikan langkah setelah subbab.
+      if (sg.kuis) hasil.push({ id: `${sg.id}-kuis`, tahap, jenis: 'kuis', judul: '', blok: [], kuis: sg.kuis })
+    }
+    return { items: hasil, pengantar: intro }
+  }, [materi.segmen])
   const [idx, setIdx] = useState(0)
-  const [jawaban, setJawaban] = useState<Record<string, number>>({})
+  const [hasilKuis, setHasilKuis] = useState<Record<string, boolean>>({})
   const [selesai, setSelesai] = useState(false)
+  const [menuTerbuka, setMenuTerbuka] = useState(false)
+  const total = items.length
+  const sg = items[idx]
+  const kuis = items.filter(s => s.jenis === 'kuis' && s.kuis)
+  const jmlBenar = kuis.filter(s => hasilKuis[s.id] === true).length
+  const tahapSekarang = sg?.tahap || 'memahami'
+  const bukaLangkah = (index: number) => { setIdx(index); setSelesai(false); setMenuTerbuka(false) }
 
-  const total = segmen.length
-  const sg = segmen[idx]
-  const jmlKuis = segmen.filter(s => s.kuis).length
-  const jmlBenar = segmen.filter(s => s.kuis && jawaban[s.id] === s.kuis!.jawaban_benar).length
+  if (!total) return <div className="rounded-2xl border border-gray-100 bg-gray-50 p-8 text-center text-sm text-gray-500">Materi ini belum memiliki subbab atau kuis.</div>
 
-  // Materi tanpa segmen (mis. materi lama) — jangan kosong
-  if (total === 0) {
-    return (
-      <div className="bg-gray-50 border border-gray-100 rounded-2xl p-8 text-center text-gray-400 text-sm">
-        Materi ini belum memiliki isi segmen.
+  if (selesai) return <div>
+    <div className="mb-6 rounded-3xl bg-teal-700 p-8 text-center text-white">
+      <h2 className="text-2xl font-bold">Materi Selesai!</h2><p className="mt-1 text-sm text-white/80">{materi.judul}</p>
+    </div>
+    {kuis.length > 0 && <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-6 text-center">
+      <p className="mb-1 text-sm text-gray-500">Hasil kuis kamu</p>
+      <p className="text-4xl font-bold text-teal-600">{jmlBenar}<span className="text-xl text-gray-400">/{kuis.length}</span></p>
+      <p className="mt-1 text-xs text-gray-500">{Math.round(jmlBenar / kuis.length * 100)}% benar</p>
+    </div>}
+    <div className="flex gap-3">
+      <button type="button" onClick={() => { setIdx(0); setSelesai(false); setHasilKuis({}) }} className="flex-1 rounded-xl bg-gray-100 py-3 font-medium text-gray-700">Ulangi</button>
+      <Link href="/materi" className="flex-1 rounded-xl bg-teal-600 py-3 text-center font-medium text-white">Materi Lain</Link>
+    </div>
+  </div>
+
+  return <div className="grid items-start gap-6 lg:grid-cols-[250px_minmax(0,1fr)]">
+    <aside className="sticky top-6 hidden max-h-[calc(100vh-3rem)] overflow-y-auto lg:block">
+      <DaftarIsi items={items} aktif={idx} hasilKuis={hasilKuis} onPilih={bukaLangkah} />
+    </aside>
+    <div className="min-w-0">
+    <div className="mb-4 lg:hidden">
+      <button type="button" onClick={() => setMenuTerbuka(v => !v)} aria-expanded={menuTerbuka}
+        className="flex w-full items-center justify-between rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-left text-sm font-semibold text-teal-800">
+        <span>☰ Daftar isi · {idx + 1}/{total}</span><span>{menuTerbuka ? 'Tutup ↑' : 'Buka ↓'}</span>
+      </button>
+      {menuTerbuka && <div className="mt-2"><DaftarIsi items={items} aktif={idx} hasilKuis={hasilKuis} onPilih={bukaLangkah} /></div>}
+    </div>
+    <div className="mb-4 grid grid-cols-3 gap-2" aria-label="Tahap pembelajaran">
+      {TAHAP.map((t, n) => {
+        const pertama = items.findIndex(s => s.tahap === t.id)
+        const aktif = tahapSekarang === t.id
+        return <button key={t.id} type="button" disabled={pertama < 0}
+          onClick={() => bukaLangkah(pertama)} title={t.judul}
+          className={`rounded-xl border px-2 py-2 text-center text-[11px] font-semibold sm:text-sm ${aktif ? 'border-teal-500 bg-teal-50 text-teal-800' : 'border-gray-200 bg-white text-gray-500'} disabled:opacity-50`}>
+          {n + 1}. {t.judul}
+        </button>
+      })}
+    </div>
+    <div className="mb-5 flex gap-1.5">{items.map((s, i) => <button key={s.id} type="button"
+      onClick={() => bukaLangkah(i)} title={s.judul || `Kuis ${i + 1}`}
+      className={`h-1.5 rounded-full ${i === idx ? 'flex-[2] bg-teal-600' : i < idx ? 'flex-1 bg-teal-300' : 'flex-1 bg-gray-200'}`} />)}</div>
+    <div className="mb-6 overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
+      <div className="border-b border-gray-100 px-5 pb-4 pt-6 sm:px-7">
+        <p className="mb-1 text-xs font-bold uppercase tracking-wide text-teal-700">Tahap {TAHAP.find(t => t.id === tahapSekarang)?.judul} · Langkah {idx + 1}/{total}</p>
+        {pengantar[tahapSekarang] && <p className="mb-2 text-sm text-gray-600">{pengantar[tahapSekarang]}</p>}
+        <h3 className="text-xl font-bold text-gray-800">{sg.jenis === 'kuis' ? 'Kuis Pembelajaran' : sg.judul || `Subbab ${idx + 1}`}</h3>
       </div>
-    )
-  }
-
-  if (selesai) {
-    return (
-      <div>
-        <div className="bg-gradient-to-b from-teal-600 to-teal-700 rounded-3xl p-8 text-center text-white mb-6">
-          <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-9 h-9" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
-          </div>
-          <h2 className="text-2xl font-bold mb-1">Materi Selesai!</h2>
-          <p className="text-white/80 text-sm">{materi.judul}</p>
-        </div>
-        {jmlKuis > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center mb-6">
-            <p className="text-sm text-gray-500 mb-1">Hasil kuis kamu</p>
-            <p className="text-4xl font-bold text-teal-600">{jmlBenar}<span className="text-xl text-gray-300">/{jmlKuis}</span></p>
-            <p className="text-xs text-gray-400 mt-1">{Math.round((jmlBenar / jmlKuis) * 100)}% benar</p>
-          </div>
-        )}
-        <div className="flex gap-3">
-          <button onClick={() => { setIdx(0); setSelesai(false); setJawaban({}) }} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200">Ulangi</button>
-          <Link href="/materi" className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-medium hover:bg-teal-700 text-center">Materi Lain</Link>
-        </div>
-      </div>
-    )
-  }
-
-  const kuisSegIni = sg.kuis
-  const sudahJawabKuis = kuisSegIni ? jawaban[sg.id] !== undefined : true
-
-  return (
-    <div>
-      {/* Progress dots */}
-      <div className="flex items-center gap-1.5 mb-6">
-        {segmen.map((s, i) => (
-          <button key={s.id} onClick={() => i <= idx && setIdx(i)}
-            className={`h-1.5 rounded-full transition-all ${i === idx ? 'flex-[2] bg-teal-600' : i < idx ? 'flex-1 bg-teal-300' : 'flex-1 bg-gray-200'}`}
-            title={s.judul} />
-        ))}
-      </div>
-
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden mb-6">
-        <div className="px-6 pt-6 pb-2">
-          <p className="text-[11px] font-semibold text-teal-600 uppercase tracking-wider mb-1">Segmen {idx + 1} / {total}</p>
-          <h3 className="text-xl font-bold text-gray-800">{sg.judul || `Bagian ${idx + 1}`}</h3>
-        </div>
-        <div className="px-6 py-4 flex flex-col gap-4">
-          {sg.blok.map(b => <RenderBlok key={b.id} b={b} />)}
-          {kuisSegIni && (
-            <KuisView kuis={kuisSegIni} jawaban={jawaban[sg.id] ?? null}
-              onJawab={i => setJawaban(prev => ({ ...prev, [sg.id]: i }))} />
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0}
-          className="px-5 py-3 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 disabled:opacity-40">← Sebelumnya</button>
-        <div className="flex-1" />
-        {kuisSegIni && !sudahJawabKuis && <span className="text-[11px] text-amber-600 mr-1">Jawab kuisnya dulu, atau lewati</span>}
-        {idx < total - 1 ? (
-          <button onClick={() => setIdx(i => i + 1)} className="px-6 py-3 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700">Lanjut →</button>
-        ) : (
-          <button onClick={() => setSelesai(true)} className="px-6 py-3 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700">Selesai ✓</button>
-        )}
+      <div className="flex flex-col gap-5 px-5 py-6 sm:px-7">
+        {sg.jenis === 'kuis' && sg.kuis
+          ? <KuisInteraktif key={sg.id} kuis={sg.kuis} onSelesai={benar => setHasilKuis(prev => ({ ...prev, [sg.id]: benar }))} />
+          : sg.blok.map(b => <RenderBlok key={b.id} b={b} />)}
       </div>
     </div>
-  )
+    <div className="flex flex-wrap items-center gap-3">
+      <button type="button" onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0}
+        className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-medium text-gray-600 disabled:opacity-40">← Sebelumnya</button>
+      <div className="flex-1" />
+      {sg.jenis === 'kuis' && hasilKuis[sg.id] === undefined && <span className="hidden text-[11px] text-amber-700 sm:inline">Jawab kuis atau lanjutkan</span>}
+      {idx < total - 1
+        ? <button type="button" onClick={() => setIdx(i => i + 1)} className="rounded-xl bg-teal-600 px-6 py-3 text-sm font-medium text-white">Lanjut →</button>
+        : <button type="button" onClick={() => setSelesai(true)} className="rounded-xl bg-teal-600 px-6 py-3 text-sm font-medium text-white">Selesai ✓</button>}
+    </div>
+    </div>
+  </div>
 }

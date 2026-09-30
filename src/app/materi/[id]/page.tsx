@@ -16,7 +16,7 @@ export default async function MateriDetailPage({ params }: { params: Promise<{ i
   const punyaSegmen = Array.isArray(materi.segmen) && materi.segmen.length > 0
 
   return (
-    <main className="p-6 md:p-8 max-w-3xl mx-auto">
+    <main className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
       <Link href="/materi" className="text-sm text-teal-600 hover:text-teal-800 mb-4 inline-block">← Kembali ke Materi</Link>
 
       <div className="mb-6">
