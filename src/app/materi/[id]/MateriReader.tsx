@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import KuisInteraktif, { type Kuis } from '../KuisInteraktif'
 
@@ -30,6 +30,34 @@ function ytId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/)
   return m ? m[1] : (url.length === 11 ? url : null)
 }
+
+function HtmlEmbed({ kode }: { kode: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [tinggi, setTinggi] = useState(720)
+  const dokumen = /<!doctype\s+html|<(?:html|head|body|script|style)(?:\s|>)/i.test(kode)
+  useEffect(() => {
+    if (!dokumen) return
+    setTinggi(720)
+    const resize = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow || event.data?.tipe !== 'tinggi-embed-materi') return
+      const n = event.data.tinggi
+      if (typeof n === 'number' && Number.isFinite(n)) setTinggi(Math.max(200, Math.min(6000, Math.ceil(n))))
+    }
+    window.addEventListener('message', resize)
+    return () => window.removeEventListener('message', resize)
+  }, [kode, dokumen])
+  if (!dokumen) return <div className="overflow-hidden rounded-xl border border-gray-100" dangerouslySetInnerHTML={{ __html: kode }} />
+
+  const pengukur = `<script>(function(){var kirim=function(){parent.postMessage({tipe:'tinggi-embed-materi',tinggi:document.body.scrollHeight+4},'*')};addEventListener('load',kirim);new ResizeObserver(kirim).observe(document.body);setTimeout(kirim,100);setTimeout(kirim,800)})();<\/script>`
+  const srcDoc = /<\/body\s*>/i.test(kode) ? kode.replace(/<\/body\s*>/i, `${pengukur}</body>`) : `${kode}\n${pengukur}`
+  return <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
+    <div className="flex justify-end border-b border-gray-100 px-3 py-2"><button type="button" onClick={() => iframeRef.current?.requestFullscreen()}
+      className="text-xs font-medium text-teal-700 hover:underline">Lihat layar penuh ↗</button></div>
+    <iframe ref={iframeRef} title="Aktivitas interaktif materi" srcDoc={srcDoc} sandbox="allow-scripts" allowFullScreen
+      className="block w-full border-0" style={{ height: tinggi }} />
+  </div>
+}
+
 function RenderBlok({ b }: { b: Blok }) {
   if (b.tipe === 'teks') return <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-gray-700">{b.isi}</p>
   if (b.tipe === 'gambar') return b.url ? <figure className="my-1">
@@ -40,39 +68,29 @@ function RenderBlok({ b }: { b: Blok }) {
     const id = ytId(b.youtubeUrl)
     return id ? <div className="aspect-video overflow-hidden rounded-xl bg-black"><iframe className="h-full w-full" src={`https://www.youtube.com/embed/${id}`} allowFullScreen title="video" /></div> : null
   }
-  if (b.tipe === 'html') return b.kode ? <div className="overflow-hidden rounded-xl border border-gray-100" dangerouslySetInnerHTML={{ __html: b.kode }} /> : null
+  if (b.tipe === 'html') return b.kode ? <HtmlEmbed kode={b.kode} /> : null
   return null
 }
 
-function DaftarIsi({ items, aktif, hasilKuis, onPilih }: {
-  items: Segmen[]; aktif: number; hasilKuis: Record<string, boolean>; onPilih: (index: number) => void
+function DaftarIsi({ items, aktif, onPilih }: {
+  items: Segmen[]; aktif: number; onPilih: (index: number) => void
 }) {
-  return <nav aria-label="Daftar isi materi" className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="mb-4 border-b border-gray-100 pb-3">
-      <h2 className="text-sm font-bold text-gray-900">Daftar isi</h2>
-      <p className="mt-1 text-xs text-gray-500">Pilih subbab atau kuis untuk langsung membukanya.</p>
-    </div>
-    <div className="space-y-5">
-      {TAHAP.map((t, tahapIndex) => {
-        const daftar = items.map((item, index) => ({ item, index })).filter(({ item }) => item.tahap === t.id)
+  return <nav aria-label="Daftar isi materi" className="rounded-xl border border-gray-200 bg-white p-4">
+    <h2 className="mb-4 text-sm font-bold text-gray-900">Daftar isi</h2>
+    <div className="space-y-4">
+      {TAHAP.map(t => {
+        const daftar = items.map((item, index) => ({ item, index })).filter(({ item }) => item.tahap === t.id && item.jenis !== 'kuis')
         return <section key={t.id} aria-label={`Tahap ${t.judul}`}>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-bold text-teal-800">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-100 text-[10px]">{tahapIndex + 1}</span>
-            {t.judul}
-          </h3>
-          {daftar.length === 0 ? <p className="pl-7 text-xs italic text-gray-400">Belum ada isi</p> :
-            <ol className="space-y-1 border-l border-gray-200 pl-2.5 ml-2.5">
-              {daftar.map(({ item, index }) => {
+          <h3 className="mb-1.5 text-xs font-bold text-teal-800">{t.judul}</h3>
+          {daftar.length > 0 &&
+            <ol className="space-y-0.5 border-l border-gray-200 pl-2.5">
+              {daftar.map(({ item, index }, nomor) => {
                 const sekarang = index === aktif
-                const kuis = item.jenis === 'kuis'
-                const nomor = daftar.filter(({ item: s, index: n }) => n <= index && s.jenis === item.jenis).length
-                const label = kuis ? item.kuis?.pertanyaan || `Kuis ${nomor}` : item.judul || `Subbab ${nomor}`
+                const label = item.judul || `Subbab ${nomor + 1}`
                 return <li key={item.id}>
                   <button type="button" aria-current={sekarang ? 'step' : undefined} onClick={() => onPilih(index)}
-                    className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs leading-snug transition ${sekarang ? 'bg-teal-50 font-semibold text-teal-800 ring-1 ring-teal-200' : 'text-gray-600 hover:bg-gray-50 hover:text-teal-700'}`}>
-                    <span aria-hidden="true" className="mt-px shrink-0">{kuis ? '◇' : '•'}</span>
-                    <span className="min-w-0 flex-1 break-words">{label}</span>
-                    {kuis && hasilKuis[item.id] !== undefined && <span className={`shrink-0 font-bold ${hasilKuis[item.id] ? 'text-green-600' : 'text-amber-600'}`} aria-label={hasilKuis[item.id] ? 'Benar' : 'Perlu dicoba lagi'}>{hasilKuis[item.id] ? '✓' : '↻'}</span>}
+                    className={`w-full rounded-md px-2 py-1.5 text-left text-xs leading-snug transition ${sekarang ? 'bg-teal-50 font-semibold text-teal-800' : 'text-gray-600 hover:bg-gray-50 hover:text-teal-700'}`}>
+                    {label}
                   </button>
                 </li>
               })}
@@ -130,31 +148,17 @@ export default function MateriReader({ materi }: { materi: Materi }) {
   </div>
 
   return <div className="grid items-start gap-6 lg:grid-cols-[250px_minmax(0,1fr)]">
-    <aside className="sticky top-6 hidden max-h-[calc(100vh-3rem)] overflow-y-auto lg:block">
-      <DaftarIsi items={items} aktif={idx} hasilKuis={hasilKuis} onPilih={bukaLangkah} />
+    <aside className="sticky top-24 hidden max-h-[calc(100vh-7rem)] overflow-y-auto lg:block">
+      <DaftarIsi items={items} aktif={idx} onPilih={bukaLangkah} />
     </aside>
     <div className="min-w-0">
     <div className="mb-4 lg:hidden">
       <button type="button" onClick={() => setMenuTerbuka(v => !v)} aria-expanded={menuTerbuka}
         className="flex w-full items-center justify-between rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-left text-sm font-semibold text-teal-800">
-        <span>☰ Daftar isi · {idx + 1}/{total}</span><span>{menuTerbuka ? 'Tutup ↑' : 'Buka ↓'}</span>
+        <span>Daftar isi</span><span>{menuTerbuka ? 'Tutup ↑' : 'Buka ↓'}</span>
       </button>
-      {menuTerbuka && <div className="mt-2"><DaftarIsi items={items} aktif={idx} hasilKuis={hasilKuis} onPilih={bukaLangkah} /></div>}
+      {menuTerbuka && <div className="mt-2"><DaftarIsi items={items} aktif={idx} onPilih={bukaLangkah} /></div>}
     </div>
-    <div className="mb-4 grid grid-cols-3 gap-2" aria-label="Tahap pembelajaran">
-      {TAHAP.map((t, n) => {
-        const pertama = items.findIndex(s => s.tahap === t.id)
-        const aktif = tahapSekarang === t.id
-        return <button key={t.id} type="button" disabled={pertama < 0}
-          onClick={() => bukaLangkah(pertama)} title={t.judul}
-          className={`rounded-xl border px-2 py-2 text-center text-[11px] font-semibold sm:text-sm ${aktif ? 'border-teal-500 bg-teal-50 text-teal-800' : 'border-gray-200 bg-white text-gray-500'} disabled:opacity-50`}>
-          {n + 1}. {t.judul}
-        </button>
-      })}
-    </div>
-    <div className="mb-5 flex gap-1.5">{items.map((s, i) => <button key={s.id} type="button"
-      onClick={() => bukaLangkah(i)} title={s.judul || `Kuis ${i + 1}`}
-      className={`h-1.5 rounded-full ${i === idx ? 'flex-[2] bg-teal-600' : i < idx ? 'flex-1 bg-teal-300' : 'flex-1 bg-gray-200'}`} />)}</div>
     <div className="mb-6 overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
       <div className="border-b border-gray-100 px-5 pb-4 pt-6 sm:px-7">
         <p className="mb-1 text-xs font-bold uppercase tracking-wide text-teal-700">Tahap {TAHAP.find(t => t.id === tahapSekarang)?.judul} · Langkah {idx + 1}/{total}</p>
