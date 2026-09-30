@@ -60,6 +60,33 @@ function ytId(url: string): string | null {
   return m ? m[1] : (url.length === 11 ? url : null)
 }
 
+function HtmlEmbed({ kode }: { kode: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [tinggi, setTinggi] = useState(720)
+  const dokumen = /<!doctype\s+html|<(?:html|head|body|script|style)(?:\s|>)/i.test(kode)
+  useEffect(() => {
+    if (!dokumen) return
+    setTinggi(720)
+    const resize = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow || event.data?.tipe !== 'tinggi-embed-materi') return
+      const n = event.data.tinggi
+      if (typeof n === 'number' && Number.isFinite(n)) setTinggi(Math.max(200, Math.min(6000, Math.ceil(n))))
+    }
+    window.addEventListener('message', resize)
+    return () => window.removeEventListener('message', resize)
+  }, [kode, dokumen])
+  if (!dokumen) return <div dangerouslySetInnerHTML={{ __html: kode }} />
+
+  const pengukur = `<script>(function(){var kirim=function(){parent.postMessage({tipe:'tinggi-embed-materi',tinggi:document.body.scrollHeight+4},'*')};addEventListener('load',kirim);new ResizeObserver(kirim).observe(document.body);setTimeout(kirim,100);setTimeout(kirim,800)})();<\/script>`
+  const srcDoc = /<\/body\s*>/i.test(kode) ? kode.replace(/<\/body\s*>/i, `${pengukur}</body>`) : `${kode}\n${pengukur}`
+  return <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <div className="flex justify-end border-b border-gray-100 px-3 py-2"><button type="button" onClick={() => iframeRef.current?.requestFullscreen()}
+      className="text-xs font-medium text-teal-700 hover:underline">Lihat layar penuh ↗</button></div>
+    <iframe ref={iframeRef} title="Pratinjau aktivitas HTML" srcDoc={srcDoc} sandbox="allow-scripts" allowFullScreen
+      className="block w-full border-0" style={{ height: tinggi }} />
+  </div>
+}
+
 // ── Upload helper ──
 async function uploadGambar(file: File): Promise<{ url: string; path: string } | null> {
   const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
@@ -862,7 +889,7 @@ export default function AdminMateriPage() {
                         {b.tipe === 'teks' && <p className="whitespace-pre-wrap text-sm text-gray-700">{b.isi}</p>}
                         {b.tipe === 'gambar' && b.url && <figure><img src={b.url} alt={b.caption || ''} className="max-h-56 rounded-lg object-contain" />{b.caption && <figcaption className="text-xs">{b.caption}</figcaption>}</figure>}
                         {b.tipe === 'video' && ytId(b.youtubeUrl) && <iframe src={`https://www.youtube.com/embed/${ytId(b.youtubeUrl)}`} title="Pratinjau video" className="aspect-video w-full rounded-lg" allowFullScreen />}
-                        {b.tipe === 'html' && b.kode && <div dangerouslySetInnerHTML={{ __html: b.kode }} />}
+                        {b.tipe === 'html' && b.kode && <HtmlEmbed kode={b.kode} />}
                       </div>)}
                     </div>}
                   </>}
