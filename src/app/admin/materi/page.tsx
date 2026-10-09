@@ -50,6 +50,8 @@ interface MateriItem {
   id: string; judul: string; published: boolean; is_konsep_dasar: boolean
   jenis_bencana_id: number | null; jenis_bencana: { nama: string } | null
   segmen: Segmen[] | null
+  thumbnail_url?: string | null
+  thumbnail_storage_path?: string | null
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10)
@@ -586,6 +588,30 @@ export default function AdminMateriPage() {
   const [editTarget, setEditTarget] = useState<MateriItem | null>(null)
   const [isKonsepDasar, setIsKonsepDasar] = useState(false)
   const [judul, setJudul] = useState('')
+  const [thumbnailUrl, setThumbnailUrl] = useState('')
+  const [thumbnailPath, setThumbnailPath] = useState<string | null>(null)
+  const [thumbnailMode, setThumbnailMode] = useState<'upload' | 'link'>('upload')
+  const [thumbnailUploading, setThumbnailUploading] = useState(false)
+  const thumbnailInputRef = useRef<HTMLInputElement>(null)
+
+  const handleThumbnailUpload = async (file: File) => {
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      setPesan('Gunakan gambar JPG, PNG, WebP, atau GIF.'); return
+    }
+    if (file.size > 10 * 1024 * 1024) { setPesan('Ukuran thumbnail maksimum 10 MB.'); return }
+    setThumbnailUploading(true)
+    setPesan('')
+    try {
+      const result = await uploadGambar(file)
+      if (result) { setThumbnailUrl(result.url); setThumbnailPath(result.path) }
+      else setPesan('Gagal mengupload thumbnail. Silakan coba kembali.')
+    } catch {
+      setPesan('Gagal mengupload thumbnail. Periksa koneksi lalu coba kembali.')
+    } finally {
+      setThumbnailUploading(false)
+      if (thumbnailInputRef.current) thumbnailInputRef.current.value = ''
+    }
+  }
   const [selectedBencana, setSelectedBencana] = useState('')
   const [segmen, setSegmen] = useState<Segmen[]>([])
   const [tahapAktif, setTahapAktif] = useState<TahapId>('memahami')
@@ -605,11 +631,14 @@ export default function AdminMateriPage() {
   }, [])
 
   const resetForm = () => {
+    setThumbnailUrl(''); setThumbnailPath(null); setThumbnailMode('upload')
     setJudul(''); setSelectedBencana(''); setIsKonsepDasar(false); setSegmen(normalisasiSegmen([])); setTahapAktif('memahami'); setTerbukaId(null); setEditTarget(null); setPesan('')
   }
 
   const handleEdit = (m: MateriItem) => {
     setEditTarget(m); setJudul(m.judul); setSelectedBencana(m.jenis_bencana_id ? String(m.jenis_bencana_id) : '')
+    setThumbnailUrl(m.thumbnail_url || ''); setThumbnailPath(m.thumbnail_storage_path || null)
+    setThumbnailMode(m.thumbnail_url && !m.thumbnail_storage_path ? 'link' : 'upload')
     setIsKonsepDasar(m.is_konsep_dasar)
     // Migrasi data lama: blok gambar tanpa sumberGambar dianggap 'link'
     const migratedSegmen = (Array.isArray(m.segmen) ? m.segmen : []).map(sg => ({
@@ -689,6 +718,14 @@ export default function AdminMateriPage() {
     }))
 
   const handleSimpan = async (published: boolean) => {
+    if (loading || thumbnailUploading) return
+    const sampul = thumbnailUrl.trim()
+    if (sampul) {
+      try {
+        const url = new URL(sampul)
+        if (!['https:', 'http:'].includes(url.protocol)) throw new Error('URL tidak valid')
+      } catch { setPesan('Thumbnail harus memakai URL gambar http:// atau https:// yang valid.'); return }
+    }
     if (!judul) { setPesan('Judul wajib diisi!'); return }
     if (!isKonsepDasar && !selectedBencana) { setPesan('Pilih jenis bencana!'); return }
     for (const [i, sg] of segmen.entries()) {
@@ -714,6 +751,8 @@ export default function AdminMateriPage() {
       judul, published, is_konsep_dasar: isKonsepDasar,
       jenis_bencana_id: isKonsepDasar ? null : Number(selectedBencana),
       segmen,
+      thumbnail_url: sampul || null,
+      thumbnail_storage_path: sampul ? thumbnailPath : null,
     }
     let error
     if (mode === 'edit' && editTarget) {
@@ -783,7 +822,7 @@ export default function AdminMateriPage() {
   return (
     <div className="max-w-5xl p-4 sm:p-8">
       <div className="flex items-center gap-3 mb-6">
-        <button className="text-sm text-teal-600 hover:text-teal-800" onClick={() => { resetForm(); setMode('list') }}>← Kembali</button>
+        <button className="text-sm text-teal-600 hover:text-teal-800" disabled={loading || thumbnailUploading} onClick={() => { resetForm(); setMode('list') }}>← Kembali</button>
         <div>
           <h1 className="text-2xl font-bold text-gray-800">{mode === 'edit' ? 'Edit Materi' : 'Buat Materi Baru'}</h1>
           <p className="text-gray-500 text-sm">Susun tiga tahap pembelajaran. Tambahkan subbab dan kuis secara bebas, lalu atur urutannya.</p>
@@ -794,6 +833,31 @@ export default function AdminMateriPage() {
       <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-6 flex flex-col gap-4">
         <h2 className="font-semibold text-gray-700">Informasi Dasar</h2>
         <input className={inputCls} placeholder="Judul materi" value={judul} onChange={e => setJudul(e.target.value)} />
+        <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+          <label className="block text-sm font-semibold text-gray-700">Thumbnail materi <span className="font-normal text-gray-400">(opsional)</span></label>
+          <p className="mt-1 text-xs leading-5 text-gray-500">Gambar sampul pada daftar materi. Disarankan rasio 16:9, misalnya 1280 × 720 piksel. Jika kosong, gambar pertama dalam materi digunakan.</p>
+          <div className="my-3 flex gap-2" role="group" aria-label="Sumber thumbnail">
+            {(['upload', 'link'] as const).map(tab => <button key={tab} type="button" disabled={thumbnailUploading || loading} aria-pressed={thumbnailMode === tab}
+              onClick={() => setThumbnailMode(tab)} className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${thumbnailMode === tab ? 'border-teal-200 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-500'}`}>
+              {tab === 'upload' ? 'Upload gambar' : 'URL gambar'}
+            </button>)}
+          </div>
+          {thumbnailMode === 'upload' ? <>
+            <input ref={thumbnailInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" disabled={thumbnailUploading || loading}
+              onChange={e => { const file = e.target.files?.[0]; if (file) void handleThumbnailUpload(file) }} />
+            <button type="button" disabled={thumbnailUploading || loading} onClick={() => thumbnailInputRef.current?.click()}
+              className="rounded-lg border border-dashed border-teal-300 bg-white px-4 py-3 text-sm font-medium text-teal-700 disabled:opacity-50">
+              {thumbnailUploading ? 'Mengupload...' : thumbnailUrl ? 'Ganti thumbnail' : 'Pilih gambar thumbnail'}
+            </button>
+            <p className="mt-1 text-xs text-gray-400">JPG, PNG, WebP, atau GIF · Maksimum 10 MB</p>
+          </> : <input type="url" aria-label="URL thumbnail" className={inputCls} placeholder="https://.../gambar.jpg" value={thumbnailUrl} disabled={loading}
+            onChange={e => { setThumbnailUrl(e.target.value); setThumbnailPath(null) }} />}
+          {/^https?:\/\//i.test(thumbnailUrl.trim()) && <div className="mt-3 max-w-sm">
+            <img key={thumbnailUrl} src={thumbnailUrl.trim()} alt="Pratinjau thumbnail materi" className="aspect-video w-full rounded-lg border border-gray-200 bg-gray-100 object-cover" />
+          </div>}
+          {thumbnailUrl && <button type="button" disabled={thumbnailUploading || loading} className="mt-2 text-xs font-medium text-red-600 hover:underline"
+            onClick={() => { setThumbnailUrl(''); setThumbnailPath(null) }}>Hapus thumbnail</button>}
+        </div>
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input type="checkbox" checked={isKonsepDasar} onChange={e => setIsKonsepDasar(e.target.checked)} className="accent-teal-600" />
           Materi Konsep Dasar (tematik, lintas-bencana)
@@ -903,8 +967,8 @@ export default function AdminMateriPage() {
       {pesan && <div className={`text-sm px-4 py-2.5 rounded-xl mb-4 ${pesan.includes('Gagal') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700'}`}>{pesan}</div>}
 
       <div className="flex gap-3 sticky bottom-4">
-        <button className="flex-1 bg-gray-100 text-gray-700 p-2.5 rounded-xl font-medium hover:bg-gray-200 shadow-sm" onClick={() => handleSimpan(false)} disabled={loading}>Simpan Draft</button>
-        <button className="flex-1 bg-teal-600 text-white p-2.5 rounded-xl font-medium hover:bg-teal-700 shadow-sm" onClick={() => handleSimpan(true)} disabled={loading}>
+        <button className="flex-1 bg-gray-100 text-gray-700 p-2.5 rounded-xl font-medium hover:bg-gray-200 shadow-sm" onClick={() => handleSimpan(false)} disabled={loading || thumbnailUploading}>Simpan Draft</button>
+        <button className="flex-1 bg-teal-600 text-white p-2.5 rounded-xl font-medium hover:bg-teal-700 shadow-sm" onClick={() => handleSimpan(true)} disabled={loading || thumbnailUploading}>
           {loading ? 'Menyimpan...' : 'Publish'}
         </button>
       </div>
