@@ -5,7 +5,7 @@ const features = [
   { title: 'Edukasi Bencana', detail: 'Kenali ancaman, mitigasi, dan langkah kesiapsiagaan.', href: '/materi', tone: 'blue', icon: <><path d="M12 2.5 20 6v5.4c0 5.1-3.3 8.3-8 10.1-4.7-1.8-8-5-8-10.1V6l8-3.5Z" /><path d="M12 6v11m-4-4 4 4 4-4" /></> },
   { title: 'Peta Interaktif', detail: 'Jelajahi informasi spasial kebencanaan Lampung.', href: '/peta', tone: 'teal', icon: <><path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5Z" /><path d="M9 3v16m6-14v16" /></> },
   { title: 'Deep Learning', detail: 'Analisis masalah nyata dan bangun pemahaman mendalam.', href: '/lkpd', tone: 'violet', icon: <><path d="M9 4a3 3 0 0 0-4 4 3.5 3.5 0 0 0-.5 6A3.5 3.5 0 0 0 9 19m6-15a3 3 0 0 1 4 4 3.5 3.5 0 0 1 .5 6A3.5 3.5 0 0 1 15 19M9 4v15a3 3 0 0 0 6 0V4a3 3 0 0 0-6 0Z" /><path d="M7 10h2m6 0h2M7 15h2m6 0h2" /></> },
-  { title: 'Literasi Bencana Spasial', detail: 'Baca peta, pahami risiko, dan tentukan tindakan.', href: '/sdl-test', tone: 'amber', icon: <><path d="M12 5c-2.5-1.5-5.4-1.6-9-.5v15c3.6-1.1 6.5-1 9 .5 2.5-1.5 5.4-1.6 9-.5v-15C17.4 3.4 14.5 3.5 12 5Z" /><path d="M12 5v15m-6-12h3m6 0h3m-12 4h3m6 0h3" /></> },
+  { title: 'Literasi Bencana Spasial', detail: 'Baca peta, pahami risiko, dan tentukan tindakan.', href: '/kuis-bencana', tone: 'amber', icon: <><path d="M12 5c-2.5-1.5-5.4-1.6-9-.5v15c3.6-1.1 6.5-1 9 .5 2.5-1.5 5.4-1.6 9-.5v-15C17.4 3.4 14.5 3.5 12 5Z" /><path d="M12 5v15m-6-12h3m6 0h3m-12 4h3m6 0h3" /></> },
 ]
 
 function Arrow() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg> }
